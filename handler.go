@@ -1,13 +1,14 @@
 package main
 
 import (
+	"errors"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"api-students/app/repository"
 )
 
 // sortableFields adalah whitelist field yang boleh digunakan sebagai parameter sort.
@@ -17,8 +18,13 @@ var sortableFields = map[string]bool{
 	"is_active": true,
 }
 
-// students adalah penyimpanan in-memory sederhana sebagai pengganti database.
-var students = []Student{}
+type StudentHandler struct {
+	repo repository.StudentRepository
+}
+
+func NewStudentHandler(repo repository.StudentRepository) *StudentHandler {
+	return &StudentHandler{repo: repo}
+}
 
 // parseStudentQuery mem-parse dan memvalidasi semua query string dari request.
 // Mengembalikan StudentQuery yang siap dipakai atau pesan error jika ada parameter tidak valid.
@@ -64,10 +70,11 @@ func parseStudentQuery(c *fiber.Ctx) (StudentQuery, string) {
 
 	// --- order ---
 	if raw := c.Query("order"); raw != "" {
-		if raw != "asc" && raw != "desc" {
+		orderLower := strings.ToLower(raw)
+		if orderLower != "asc" && orderLower != "desc" {
 			return q, "Parameter 'order' hanya boleh berisi: asc atau desc"
 		}
-		q.Order = raw
+		q.Order = orderLower
 	}
 
 	// --- is_active (filter boolean opsional) ---
@@ -102,71 +109,21 @@ func parseStudentQuery(c *fiber.Ctx) (StudentQuery, string) {
 
 // GetAllStudents menangani GET /students
 // Mendukung paginasi, pencarian nama, pengurutan, dan filter is_active / rentang grade.
-func GetAllStudents(c *fiber.Ctx) error {
+func (h *StudentHandler) GetAllStudents(c *fiber.Ctx) error {
 	q, errMsg := parseStudentQuery(c)
 	if errMsg != "" {
 		return ErrorResponse(c, fiber.StatusBadRequest, errMsg)
 	}
 
-	// 1. Filter
-	filtered := []Student{}
-	search := strings.ToLower(q.Search)
-
-	for _, s := range students {
-		// filter search nama (case-insensitive)
-		if search != "" && !strings.Contains(strings.ToLower(s.Name), search) {
-			continue
-		}
-		// filter is_active
-		if q.IsActive != nil && s.IsActive != *q.IsActive {
-			continue
-		}
-		// filter grade_min
-		if q.GradeMin != nil && s.Grade < *q.GradeMin {
-			continue
-		}
-		// filter grade_max
-		if q.GradeMax != nil && s.Grade > *q.GradeMax {
-			continue
-		}
-		filtered = append(filtered, s)
+	students, total, err := h.repo.FindAll(c.Context(), q)
+	if err != nil {
+		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal mengambil data mahasiswa")
 	}
 
-	// 2. Sort
-	sort.SliceStable(filtered, func(i, j int) bool {
-		var less bool
-		switch q.Sort {
-		case "grade":
-			less = filtered[i].Grade < filtered[j].Grade
-		case "is_active":
-			// false < true, sehingga asc = non-aktif duluan
-			less = !filtered[i].IsActive && filtered[j].IsActive
-		default: // "name"
-			less = strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name)
-		}
-		if q.Order == "desc" {
-			return !less
-		}
-		return less
-	})
-
-	// 3. Hitung meta sebelum paginate
-	total := len(filtered)
 	totalPages := int(math.Ceil(float64(total) / float64(q.Limit)))
 	if totalPages == 0 {
 		totalPages = 1
 	}
-
-	// 4. Paginate
-	start := (q.Page - 1) * q.Limit
-	if start >= total {
-		start = total
-	}
-	end := start + q.Limit
-	if end > total {
-		end = total
-	}
-	paginated := filtered[start:end]
 
 	meta := Meta{
 		Page:       q.Page,
@@ -175,26 +132,28 @@ func GetAllStudents(c *fiber.Ctx) error {
 		TotalPages: totalPages,
 	}
 
-	return PaginatedSuccessResponse(c, "Students retrieved successfully", meta, paginated)
+	return PaginatedSuccessResponse(c, "Students retrieved successfully", meta, students)
 }
 
 // GetStudentByID menangani GET /students/:id
 // Mengembalikan satu siswa berdasarkan ID-nya.
-func GetStudentByID(c *fiber.Ctx) error {
+func (h *StudentHandler) GetStudentByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	for _, s := range students {
-		if s.ID == id {
-			return SuccessResponse(c, fiber.StatusOK, "Student retrieved successfully", s)
+	s, err := h.repo.FindByID(c.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
 		}
+		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal mengambil data mahasiswa")
 	}
 
-	return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+	return SuccessResponse(c, fiber.StatusOK, "Student retrieved successfully", s)
 }
 
 // CreateStudent menangani POST /students
-// Membuat siswa baru dari body request dan menyimpannya.
-func CreateStudent(c *fiber.Ctx) error {
+// Membuat siswa baru dari body request dan menyimpannya di PostgreSQL.
+func (h *StudentHandler) CreateStudent(c *fiber.Ctx) error {
 	var req CreateStudentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return ErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
@@ -211,14 +170,17 @@ func CreateStudent(c *fiber.Ctx) error {
 		IsActive: req.IsActive,
 	}
 
-	students = append(students, newStudent)
+	created, err := h.repo.Create(c.Context(), newStudent)
+	if err != nil {
+		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal membuat data mahasiswa")
+	}
 
-	return SuccessResponse(c, fiber.StatusCreated, "Student created successfully", newStudent)
+	return SuccessResponse(c, fiber.StatusCreated, "Student created successfully", created)
 }
 
 // UpdateStudent menangani PUT /students/:id
 // Mengganti seluruh data siswa berdasarkan ID.
-func UpdateStudent(c *fiber.Ctx) error {
+func (h *StudentHandler) UpdateStudent(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	var req UpdateStudentRequest
@@ -230,24 +192,27 @@ func UpdateStudent(c *fiber.Ctx) error {
 		return ErrorResponse(c, fiber.StatusUnprocessableEntity, "Field 'name' is required")
 	}
 
-	for i, s := range students {
-		if s.ID == id {
-			students[i] = Student{
-				ID:       id,
-				Name:     req.Name,
-				Grade:    req.Grade,
-				IsActive: req.IsActive,
-			}
-			return SuccessResponse(c, fiber.StatusOK, "Student updated successfully", students[i])
-		}
+	updateStudent := Student{
+		ID:       id,
+		Name:     req.Name,
+		Grade:    req.Grade,
+		IsActive: req.IsActive,
 	}
 
-	return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+	updated, err := h.repo.Update(c.Context(), updateStudent)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+		}
+		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal memperbarui data mahasiswa")
+	}
+
+	return SuccessResponse(c, fiber.StatusOK, "Student updated successfully", updated)
 }
 
 // PatchStudent menangani PATCH /students/:id
 // Memperbarui sebagian data siswa, hanya field yang dikirim yang akan diubah.
-func PatchStudent(c *fiber.Ctx) error {
+func (h *StudentHandler) PatchStudent(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	var req PatchStudentRequest
@@ -255,35 +220,29 @@ func PatchStudent(c *fiber.Ctx) error {
 		return ErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	for i, s := range students {
-		if s.ID == id {
-			if req.Name != nil {
-				students[i].Name = *req.Name
-			}
-			if req.Grade != nil {
-				students[i].Grade = *req.Grade
-			}
-			if req.IsActive != nil {
-				students[i].IsActive = *req.IsActive
-			}
-			return SuccessResponse(c, fiber.StatusOK, "Student patched successfully", students[i])
+	patched, err := h.repo.Patch(c.Context(), id, req.Name, req.Grade, req.IsActive)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
 		}
+		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal memperbarui data mahasiswa")
 	}
 
-	return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+	return SuccessResponse(c, fiber.StatusOK, "Student patched successfully", patched)
 }
 
 // DeleteStudent menangani DELETE /students/:id
 // Menghapus siswa berdasarkan ID
-func DeleteStudent(c *fiber.Ctx) error {
+func (h *StudentHandler) DeleteStudent(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	for i, s := range students {
-		if s.ID == id {
-			students = append(students[:i], students[i+1:]...)
-			return SuccessResponse(c, fiber.StatusOK, "Student deleted successfully", nil)
+	err := h.repo.Delete(c.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
 		}
+		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal menghapus data mahasiswa")
 	}
 
-	return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+	return SuccessResponse(c, fiber.StatusOK, "Student deleted successfully", nil)
 }

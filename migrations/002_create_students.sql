@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS students (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    grade DOUBLE PRECISION NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS students_name_lower_idx
+    ON students (LOWER(name));
