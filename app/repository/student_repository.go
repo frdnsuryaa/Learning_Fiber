@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"api-students/app/model"
 )
@@ -16,7 +17,7 @@ type StudentRepository interface {
 	FindByID(ctx context.Context, id string) (model.Student, error)
 	Create(ctx context.Context, s model.Student) (model.Student, error)
 	Update(ctx context.Context, s model.Student) (model.Student, error)
-	Patch(ctx context.Context, id string, name *string, grade *float64, isActive *bool) (model.Student, error)
+	Patch(ctx context.Context, id string, nim *string, name *string, grade *float64, isActive *bool) (model.Student, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -30,18 +31,24 @@ func NewStudentRepository(pool *pgxpool.Pool) StudentRepository {
 
 func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student) (model.Student, error) {
 	query := `
-		INSERT INTO students (id, name, grade, is_active)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, grade, is_active
+		INSERT INTO students (id, nim, name, grade, is_active, created_at)
+		VALUES ($1, $2, $3, $4, $5, NOW())
+		RETURNING id, nim, name, grade, is_active, created_at
 	`
 	var created model.Student
-	err := r.pool.QueryRow(ctx, query, s.ID, s.Name, s.Grade, s.IsActive).Scan(
+	err := r.pool.QueryRow(ctx, query, s.ID, s.NIM, s.Name, s.Grade, s.IsActive).Scan(
 		&created.ID,
+		&created.NIM,
 		&created.Name,
 		&created.Grade,
 		&created.IsActive,
+		&created.CreatedAt,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // Unique violation
+			return model.Student{}, ErrDuplicate
+		}
 		return model.Student{}, fmt.Errorf("gagal membuat student: %w", err)
 	}
 
@@ -50,16 +57,18 @@ func (r *studentPostgresRepository) Create(ctx context.Context, s model.Student)
 
 func (r *studentPostgresRepository) FindByID(ctx context.Context, id string) (model.Student, error) {
 	query := `
-		SELECT id, name, grade, is_active
+		SELECT id, nim, name, grade, is_active, created_at
 		FROM students
 		WHERE id = $1
 	`
 	var s model.Student
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&s.ID,
+		&s.NIM,
 		&s.Name,
 		&s.Grade,
 		&s.IsActive,
+		&s.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -77,7 +86,7 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.Student
 	argIdx := 1
 
 	if q.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("LOWER(name) LIKE $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("(LOWER(name) LIKE $%d OR LOWER(nim) LIKE $%d)", argIdx, argIdx))
 		args = append(args, "%"+strings.ToLower(q.Search)+"%")
 		argIdx++
 	}
@@ -139,7 +148,7 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.Student
 	limitClause := fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	queryArgs := append(args, q.Limit, offset)
 
-	dataQuery := "SELECT id, name, grade, is_active FROM students" + whereClause + orderClause + limitClause
+	dataQuery := "SELECT id, nim, name, grade, is_active, created_at FROM students" + whereClause + orderClause + limitClause
 	rows, err := r.pool.Query(ctx, dataQuery, queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("gagal query students: %w", err)
@@ -149,7 +158,7 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.Student
 	students := make([]model.Student, 0)
 	for rows.Next() {
 		var s model.Student
-		if err := rows.Scan(&s.ID, &s.Name, &s.Grade, &s.IsActive); err != nil {
+		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("gagal scan student: %w", err)
 		}
 		students = append(students, s)
@@ -165,18 +174,24 @@ func (r *studentPostgresRepository) FindAll(ctx context.Context, q model.Student
 func (r *studentPostgresRepository) Update(ctx context.Context, s model.Student) (model.Student, error) {
 	query := `
 		UPDATE students
-		SET name = $1, grade = $2, is_active = $3
-		WHERE id = $4
-		RETURNING id, name, grade, is_active
+		SET nim = $1, name = $2, grade = $3, is_active = $4
+		WHERE id = $5
+		RETURNING id, nim, name, grade, is_active, created_at
 	`
 	var updated model.Student
-	err := r.pool.QueryRow(ctx, query, s.Name, s.Grade, s.IsActive, s.ID).Scan(
+	err := r.pool.QueryRow(ctx, query, s.NIM, s.Name, s.Grade, s.IsActive, s.ID).Scan(
 		&updated.ID,
+		&updated.NIM,
 		&updated.Name,
 		&updated.Grade,
 		&updated.IsActive,
+		&updated.CreatedAt,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return model.Student{}, ErrDuplicate
+		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Student{}, ErrNotFound
 		}
@@ -186,12 +201,15 @@ func (r *studentPostgresRepository) Update(ctx context.Context, s model.Student)
 	return updated, nil
 }
 
-func (r *studentPostgresRepository) Patch(ctx context.Context, id string, name *string, grade *float64, isActive *bool) (model.Student, error) {
+func (r *studentPostgresRepository) Patch(ctx context.Context, id string, nim *string, name *string, grade *float64, isActive *bool) (model.Student, error) {
 	existing, err := r.FindByID(ctx, id)
 	if err != nil {
 		return model.Student{}, err
 	}
 
+	if nim != nil {
+		existing.NIM = *nim
+	}
 	if name != nil {
 		existing.Name = *name
 	}

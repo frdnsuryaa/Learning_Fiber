@@ -8,7 +8,7 @@ REST API untuk manajemen data mahasiswa, dibangun menggunakan [Go Fiber](https:/
 - [Prasyarat](#-prasyarat)
 - [Variabel Environment](#-variabel-environment)
 - [Menyiapkan Basis Data dari Nol](#-menyiapkan-basis-data-dari-nol)
-- [Skema Tabel](#-skema-tabel)
+- [Skema Tabel & Migrasi](#-skema-tabel--migrasi)
 - [Menjalankan Aplikasi](#-menjalankan-aplikasi)
 - [Amplop Respons](#-amplop-respons)
 - [Kontrak API & Endpoint](#-kontrak-api--endpoint)
@@ -51,7 +51,7 @@ Sesuaikan nilai di dalam `.env` dengan kredensial PostgreSQL lokal Anda:
 | `DB_HOST` | `string` | `localhost` | Host/IP server PostgreSQL |
 | `DB_PORT` | `int` | `5432` | Port server PostgreSQL |
 | `DB_USER` | `string` | `postgres` | Username akun PostgreSQL |
-| `DB_PASSWORD` | `string` | *(wajib disesuaikan)*  | Password akun PostgreSQL Anda |
+| `DB_PASSWORD` | `string` | *(wajib disesuaikan)* | Password akun PostgreSQL Anda |
 | `DB_NAME` | `string` | `praktikum_backend` | Nama database yang digunakan |
 | `DB_SSLMODE` | `string` | `disable` | Mode SSL (`disable` untuk development lokal) |
 | `DB_MAX_CONNS` | `int` | `10` | Jumlah koneksi maksimum pada connection pool |
@@ -98,35 +98,61 @@ Keluar dari psql:
 > **Catatan:** Server Go ini sudah dilengkapi **auto-migration** saat `go run .` dieksekusi pertama kali. Namun jika ingin mengeksekusi skema database secara manual melalui file migrasi:
 
 ```bash
-psql -U postgres -d praktikum_backend -f migrations/002_create_students.sql
+psql -U postgres -d praktikum_backend -f migrations/001_create_students.sql
 ```
 
 ---
 
-## 📐 Skema Tabel
+## 📐 Skema Tabel & Migrasi
 
-Tabel `students` dirancang untuk menyimpan data mahasiswa:
+Skema tabel didefinisikan dalam berkas `migrations/001_create_students.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS students (
     id VARCHAR(36) PRIMARY KEY,
+    nim VARCHAR(20) NOT NULL,
     name VARCHAR(255) NOT NULL,
     grade DOUBLE PRECISION NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT students_nim_unique UNIQUE (nim)
 );
 
--- Index untuk mempercepat pencarian nama case-insensitive
-CREATE INDEX IF NOT EXISTS students_name_lower_idx
+-- Indeks selain primary key:
+-- 1. Indeks pada LOWER(name) untuk pencarian nama case-insensitive
+CREATE INDEX IF NOT EXISTS idx_students_name_lower
     ON students (LOWER(name));
+
+-- 2. Indeks pada created_at untuk pengurutan data terbaru
+CREATE INDEX IF NOT EXISTS idx_students_created_at
+    ON students (created_at DESC);
 ```
 
-### Penjelasan Kolom:
+### Penjelasan Kolom & Batasan (Constraints):
 - **`id`** (`VARCHAR(36)`): Primary Key berupa string UUID unik (dihasilkan otomatis oleh server).
-- **`name`** (`VARCHAR(255)`): Nama lengkap mahasiswa (wajib diisi).
-- **`grade`** (`DOUBLE PRECISION`): Nilai akademik mahasiswa (angka desimal / float).
-- **`is_active`** (`BOOLEAN`): Status aktif mahasiswa (`true`/`false`).
-- **`created_at`** (`TIMESTAMPTZ`): Timestamp waktu data dibuat.
+- **`nim`** (`VARCHAR(20) NOT NULL UNIQUE`): Nomor Induk Mahasiswa, wajib unik untuk setiap mahasiswa.
+- **`name`** (`VARCHAR(255) NOT NULL`): Nama lengkap mahasiswa.
+- **`grade`** (`DOUBLE PRECISION NOT NULL DEFAULT 0`): Nilai akademik mahasiswa (angka desimal / float).
+- **`is_active`** (`BOOLEAN NOT NULL DEFAULT TRUE`): Status keaktifan mahasiswa.
+- **`created_at`** (`TIMESTAMPTZ NOT NULL DEFAULT NOW()`): Timestamp pencatatan waktu data dibuat.
+
+---
+
+## 💡 Penjelasan Teknis & Desain Database
+
+### 1. Mengapa Keunikan NIM Lebih Baik Dijaga oleh Basis Data daripada Kode Go?
+1. **Mencegah *Race Condition* (Konkurensi):**
+   Jika dua request POST dengan NIM yang sama masuk secara bersamaan (*concurrent requests*), pengecekan manual di kode Go (`SELECT ... WHERE nim = ?`) pada kedua goroutine bisa sama-sama menghasilkan "belum ada", sehingga keduanya melakukan `INSERT` dan terjadi data ganda. Basis data menjamin keunikan secara *atomic* di tingkat ACID / transaction engine melalui `UNIQUE CONSTRAINT`.
+2. **Integritas Data Tunggal (*Single Source of Truth*):**
+   Jika basis data diakses oleh beberapa *instance* backend (skala horizontal), microservices lain, script migrasi, atau tool admin (seperti DBeaver / pgAdmin), aturan keunikan tetap terlindungi dan tidak bergantung pada apakah kode aplikasi mengimplementasikan validasi atau tidak.
+3. **Efisiensi & Performa:**
+   Memeriksa keunikan di Go memerlukan ekstra 1 query `SELECT` sebelum setiap operasi `INSERT`/`UPDATE` (menambah round-trip jaringan). Dengan *database unique constraint*, validasi keunikan dilakukan langsung saat operasi write secara optimal menggunakan indeks internal.
+
+### 2. Mengapa Perlu Menambahkan Indeks Selain Kunci Primer?
+1. **Indeks `idx_students_name_lower` (`LOWER(name)`):**
+   Endpoint `GET /students?search=...` sering melakukan filter pencarian nama tanpa membedakan huruf besar/kecil (*case-insensitive*). Tanpa indeks ekspresi ini, PostgreSQL harus memindai seluruh tabel baris demi baris (*Full Table Scan* / `Seq Scan`) dan menjalankan fungsi `LOWER()` untuk setiap baris. Dengan B-Tree Index pada `LOWER(name)`, pencarian teks menjadi jauh lebih cepat ($O(\log N)$).
+2. **Indeks `idx_students_created_at` (`created_at DESC`):**
+   Digunakan untuk mengoptimalkan query pengurutan atau audit log berdasarkan waktu pembuatan data terbaru tanpa perlu melakukan proses sorting di memori (*in-memory sort*).
 
 ---
 
@@ -203,33 +229,54 @@ Semua endpoint mengembalikan JSON dengan amplop (*envelope*) standar dan konsist
 | `GET` | `/` | — | Health check / status API | `200` |
 | `GET` | `/students` | Paginasi, Filter, Sort (lihat detail) | Mengambil daftar mahasiswa | `200`, `400` |
 | `GET` | `/students/:id` | `:id` (UUID) | Mengambil detail 1 mahasiswa | `200`, `404` |
-| `POST` | `/students` | — | Menambahkan mahasiswa baru | `201`, `400`, `422` |
-| `PUT` | `/students/:id` | `:id` (UUID) | Mengganti seluruh data mahasiswa | `200`, `400`, `404`, `422` |
-| `PATCH` | `/students/:id` | `:id` (UUID) | Memperbarui sebagian data mahasiswa | `200`, `400`, `404` |
+| `POST` | `/students` | — | Menambahkan mahasiswa baru | `201`, `400`, `409`, `422` |
+| `PUT` | `/students/:id` | `:id` (UUID) | Mengganti seluruh data mahasiswa | `200`, `400`, `409`, `404`, `422` |
+| `PATCH` | `/students/:id` | `:id` (UUID) | Memperbarui sebagian data mahasiswa | `200`, `400`, `409`, `404` |
 | `DELETE` | `/students/:id` | `:id` (UUID) | Menghapus data mahasiswa | `200`, `404` |
-
----
-
-### Query Parameter — `GET /students`
-
-| Parameter | Tipe | Default | Validasi / Aturan | Keterangan |
-| :--- | :--- | :--- | :--- | :--- |
-| `page` | `int` | `1` | Bilangan bulat $\ge 1$ | Nomor halaman |
-| `limit` | `int` | `10` | Bilangan bulat $1 - 100$ | Jumlah data per halaman |
-| `search` | `string` | `""` | Bebas | Pencarian nama (tidak membedakan huruf besar/kecil) |
-| `sort` | `string` | `name` | Hanya: `name`, `grade`, `is_active` | Kolom pengurutan data |
-| `order` | `string` | `asc` | Hanya: `asc`, `desc` | Arah pengurutan |
-| `is_active` | `bool` | *(semua)* | Hanya: `true`, `false` | Filter status aktif |
-| `grade_min` | `float` | *(semua)* | Angka valid | Filter nilai minimum ($\ge$) |
-| `grade_max` | `float` | *(semua)* | Angka valid | Filter nilai maksimum ($\le$) |
 
 ---
 
 ### Contoh Request & Response
 
-#### 1. GET `/students` (Dengan Query)
+#### 1. POST `/students` (Membuat Mahasiswa Baru)
 ```http
-GET /students?page=1&limit=5&search=budi&sort=grade&order=desc&is_active=true&grade_min=70&grade_max=95
+POST /students
+Content-Type: application/json
+
+{
+  "nim": "220101001",
+  "name": "Budi Santoso",
+  "grade": 88.5,
+  "is_active": true
+}
+```
+**Response `201 Created`:**
+```json
+{
+  "success": true,
+  "message": "Student created successfully",
+  "data": {
+    "id": "e6a0d4c8-3c94-4d89-bcf8-3486c91a3291",
+    "nim": "220101001",
+    "name": "Budi Santoso",
+    "grade": 88.5,
+    "is_active": true
+  }
+}
+```
+
+**Response `409 Conflict` (Jika NIM sudah ada):**
+```json
+{
+  "success": false,
+  "message": "NIM sudah terdaftar",
+  "data": null
+}
+```
+
+#### 2. GET `/students` (Dengan Query Paginasi & Filter)
+```http
+GET /students?page=1&limit=5&search=budi&sort=grade&order=desc
 ```
 **Response `200 OK`:**
 ```json
@@ -239,27 +286,22 @@ GET /students?page=1&limit=5&search=budi&sort=grade&order=desc&is_active=true&gr
   "meta": {
     "page": 1,
     "limit": 5,
-    "total": 2,
+    "total": 1,
     "total_pages": 1
   },
   "data": [
     {
       "id": "e6a0d4c8-3c94-4d89-bcf8-3486c91a3291",
+      "nim": "220101001",
       "name": "Budi Santoso",
       "grade": 88.5,
-      "is_active": true
-    },
-    {
-      "id": "7b095cf0-0e1f-4ffb-a8d6-724f2b1d3312",
-      "name": "Budi Prasetyo",
-      "grade": 75.0,
       "is_active": true
     }
   ]
 }
 ```
 
-#### 2. GET `/students/:id`
+#### 3. GET `/students/:id`
 ```http
 GET /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 ```
@@ -270,6 +312,7 @@ GET /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
   "message": "Student retrieved successfully",
   "data": {
     "id": "e6a0d4c8-3c94-4d89-bcf8-3486c91a3291",
+    "nim": "220101001",
     "name": "Budi Santoso",
     "grade": 88.5,
     "is_active": true
@@ -277,40 +320,16 @@ GET /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 }
 ```
 
-#### 3. POST `/students`
-```http
-POST /students
-Content-Type: application/json
-
-{
-  "name": "Andi Wijaya",
-  "grade": 85.5,
-  "is_active": true
-}
-```
-**Response `201 Created`:**
-```json
-{
-  "success": true,
-  "message": "Student created successfully",
-  "data": {
-    "id": "c1f74fae-9d22-47d0-8f96-df302919d363",
-    "name": "Andi Wijaya",
-    "grade": 85.5,
-    "is_active": true
-  }
-}
-```
-
 #### 4. PUT `/students/:id`
 ```http
-PUT /students/c1f74fae-9d22-47d0-8f96-df302919d363
+PUT /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 Content-Type: application/json
 
 {
-  "name": "Andi Wijaya Updated",
-  "grade": 90.0,
-  "is_active": false
+  "nim": "220101001",
+  "name": "Budi Santoso, S.Kom",
+  "grade": 92.0,
+  "is_active": true
 }
 ```
 **Response `200 OK`:**
@@ -319,17 +338,18 @@ Content-Type: application/json
   "success": true,
   "message": "Student updated successfully",
   "data": {
-    "id": "c1f74fae-9d22-47d0-8f96-df302919d363",
-    "name": "Andi Wijaya Updated",
-    "grade": 90.0,
-    "is_active": false
+    "id": "e6a0d4c8-3c94-4d89-bcf8-3486c91a3291",
+    "nim": "220101001",
+    "name": "Budi Santoso, S.Kom",
+    "grade": 92.0,
+    "is_active": true
   }
 }
 ```
 
 #### 5. PATCH `/students/:id`
 ```http
-PATCH /students/c1f74fae-9d22-47d0-8f96-df302919d363
+PATCH /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 Content-Type: application/json
 
 {
@@ -342,17 +362,18 @@ Content-Type: application/json
   "success": true,
   "message": "Student patched successfully",
   "data": {
-    "id": "c1f74fae-9d22-47d0-8f96-df302919d363",
-    "name": "Andi Wijaya Updated",
+    "id": "e6a0d4c8-3c94-4d89-bcf8-3486c91a3291",
+    "nim": "220101001",
+    "name": "Budi Santoso, S.Kom",
     "grade": 95.0,
-    "is_active": false
+    "is_active": true
   }
 }
 ```
 
 #### 6. DELETE `/students/:id`
 ```http
-DELETE /students/c1f74fae-9d22-47d0-8f96-df302919d363
+DELETE /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 ```
 **Response `200 OK`:**
 ```json
@@ -381,8 +402,8 @@ api-students/
 ├── database/
 │   └── postgres.go          # Inisialisasi Connection Pool (pgxpool)
 ├── migrations/
-│   ├── 001_create_users.sql    # Skema tabel users
-│   └── 002_create_students.sql # Skema tabel students
+│   ├── 001_create_students.sql # Skema tabel students & indeks
+│   └── 001_create_users.sql    # Skema tabel users
 ├── handler.go               # HTTP Handler CRUD Student
 ├── helper.go                # Response envelope JSON & formatting
 ├── model.go                 # Request struct & alias model

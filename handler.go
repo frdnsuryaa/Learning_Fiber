@@ -108,7 +108,7 @@ func parseStudentQuery(c *fiber.Ctx) (StudentQuery, string) {
 }
 
 // GetAllStudents menangani GET /students
-// Mendukung paginasi, pencarian nama, pengurutan, dan filter is_active / rentang grade.
+// Mendukung paginasi, pencarian nama/NIM, pengurutan, dan filter is_active / rentang grade.
 func (h *StudentHandler) GetAllStudents(c *fiber.Ctx) error {
 	q, errMsg := parseStudentQuery(c)
 	if errMsg != "" {
@@ -159,12 +159,16 @@ func (h *StudentHandler) CreateStudent(c *fiber.Ctx) error {
 		return ErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	if req.NIM == "" {
+		return ErrorResponse(c, fiber.StatusUnprocessableEntity, "Field 'nim' is required")
+	}
 	if req.Name == "" {
 		return ErrorResponse(c, fiber.StatusUnprocessableEntity, "Field 'name' is required")
 	}
 
 	newStudent := Student{
 		ID:       uuid.NewString(),
+		NIM:      req.NIM,
 		Name:     req.Name,
 		Grade:    req.Grade,
 		IsActive: req.IsActive,
@@ -172,6 +176,9 @@ func (h *StudentHandler) CreateStudent(c *fiber.Ctx) error {
 
 	created, err := h.repo.Create(c.Context(), newStudent)
 	if err != nil {
+		if errors.Is(err, repository.ErrDuplicate) {
+			return ErrorResponse(c, fiber.StatusConflict, "NIM sudah terdaftar")
+		}
 		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal membuat data mahasiswa")
 	}
 
@@ -188,12 +195,16 @@ func (h *StudentHandler) UpdateStudent(c *fiber.Ctx) error {
 		return ErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	if req.NIM == "" {
+		return ErrorResponse(c, fiber.StatusUnprocessableEntity, "Field 'nim' is required")
+	}
 	if req.Name == "" {
 		return ErrorResponse(c, fiber.StatusUnprocessableEntity, "Field 'name' is required")
 	}
 
 	updateStudent := Student{
 		ID:       id,
+		NIM:      req.NIM,
 		Name:     req.Name,
 		Grade:    req.Grade,
 		IsActive: req.IsActive,
@@ -203,6 +214,9 @@ func (h *StudentHandler) UpdateStudent(c *fiber.Ctx) error {
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+		}
+		if errors.Is(err, repository.ErrDuplicate) {
+			return ErrorResponse(c, fiber.StatusConflict, "NIM sudah terdaftar")
 		}
 		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal memperbarui data mahasiswa")
 	}
@@ -220,10 +234,13 @@ func (h *StudentHandler) PatchStudent(c *fiber.Ctx) error {
 		return ErrorResponse(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	patched, err := h.repo.Patch(c.Context(), id, req.Name, req.Grade, req.IsActive)
+	patched, err := h.repo.Patch(c.Context(), id, req.NIM, req.Name, req.Grade, req.IsActive)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ErrorResponse(c, fiber.StatusNotFound, "Student not found")
+		}
+		if errors.Is(err, repository.ErrDuplicate) {
+			return ErrorResponse(c, fiber.StatusConflict, "NIM sudah terdaftar")
 		}
 		return ErrorResponse(c, fiber.StatusInternalServerError, "Gagal memperbarui data mahasiswa")
 	}
