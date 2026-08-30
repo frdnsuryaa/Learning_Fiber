@@ -30,9 +30,24 @@ Sebelum memulai, pastikan perangkat Anda telah terpasang:
 
 Aplikasi membaca konfigurasi dari berkas `.env` di direktori utama.
 
-### 1. Buat berkas `.env`
-Salin berkas template `.env.example` menjadi `.env`:
+> [!IMPORTANT]
+> Berkas `.env` berisi kredensial sensitif dan **tidak boleh di-commit** ke repositori Git (sudah ditambahkan ke `.gitignore`).
 
+### 1. Buat berkas `.env` dari `.env.example`
+Repositori menyertakan template `.env.example` dengan nilai kosong:
+
+```env
+APP_PORT=
+DB_HOST=
+DB_PORT=
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+DB_SSLMODE=
+DB_MAX_CONNS=
+```
+
+Salin template menjadi `.env`:
 ```bash
 # Di Windows PowerShell / CMD:
 copy .env.example .env
@@ -43,15 +58,15 @@ cp .env.example .env
 
 ### 2. Daftar variabel yang diperlukan
 
-Sesuaikan nilai di dalam `.env` dengan kredensial PostgreSQL lokal Anda:
+Isi nilai di dalam `.env` sesuai kredensial PostgreSQL lokal Anda:
 
-| Variabel | Tipe | Default | Keterangan |
+| Variabel | Tipe | Contoh Nilai | Keterangan |
 | :--- | :--- | :--- | :--- |
 | `APP_PORT` | `int` | `3000` | Port tempat server HTTP Fiber berjalan |
 | `DB_HOST` | `string` | `localhost` | Host/IP server PostgreSQL |
 | `DB_PORT` | `int` | `5432` | Port server PostgreSQL |
 | `DB_USER` | `string` | `postgres` | Username akun PostgreSQL |
-| `DB_PASSWORD` | `string` | *(wajib disesuaikan)* | Password akun PostgreSQL Anda |
+| `DB_PASSWORD` | `string` | *(password anda)* | Password akun PostgreSQL Anda |
 | `DB_NAME` | `string` | `praktikum_backend` | Nama database yang digunakan |
 | `DB_SSLMODE` | `string` | `disable` | Mode SSL (`disable` untuk development lokal) |
 | `DB_MAX_CONNS` | `int` | `10` | Jumlah koneksi maksimum pada connection pool |
@@ -168,16 +183,17 @@ CREATE INDEX IF NOT EXISTS idx_students_created_at
    go run .
    ```
 
-3. **Verifikasi server:**
+3. **Verifikasi server & koneksi database:**
    Buka browser atau kirim request GET ke:
    ```text
-   http://localhost:3000/
+   http://localhost:3000/health
    ```
    Respons yang diharapkan:
    ```json
    {
-     "message": "Welcome to Student API",
-     "status": "running"
+     "status": "ok",
+     "database": "connected",
+     "message": "Server dan basis data berjalan dengan baik"
    }
    ```
 
@@ -226,7 +242,8 @@ Semua endpoint mengembalikan JSON dengan amplop (*envelope*) standar dan konsist
 
 | Metode | Endpoint | Query Parameter | Deskripsi | Status Code |
 | :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/` | — | Health check / status API | `200` |
+| `GET` | `/` | — | Welcome message | `200` |
+| `GET` | `/health` | — | Health check server & koneksi basis data | `200`, `503` |
 | `GET` | `/students` | Paginasi, Filter, Sort (lihat detail) | Mengambil daftar mahasiswa | `200`, `400` |
 | `GET` | `/students/:id` | `:id` (UUID) | Mengambil detail 1 mahasiswa | `200`, `404` |
 | `POST` | `/students` | — | Menambahkan mahasiswa baru | `201`, `400`, `409`, `422` |
@@ -238,7 +255,29 @@ Semua endpoint mengembalikan JSON dengan amplop (*envelope*) standar dan konsist
 
 ### Contoh Request & Response
 
-#### 1. POST `/students` (Membuat Mahasiswa Baru)
+#### 1. GET `/health` (Health Check)
+```http
+GET /health
+```
+**Response `200 OK` (Database Terhubung):**
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "message": "Server dan basis data berjalan dengan baik"
+}
+```
+**Response `503 Service Unavailable` (Jika Database Terputus):**
+```json
+{
+  "status": "error",
+  "database": "disconnected",
+  "message": "Koneksi ke basis data gagal",
+  "error": "dial tcp [::1]:5432: connect: connection refused"
+}
+```
+
+#### 2. POST `/students` (Membuat Mahasiswa Baru)
 ```http
 POST /students
 Content-Type: application/json
@@ -274,7 +313,7 @@ Content-Type: application/json
 }
 ```
 
-#### 2. GET `/students` (Dengan Query Paginasi & Filter)
+#### 3. GET `/students` (Dengan Query Paginasi & Filter)
 ```http
 GET /students?page=1&limit=5&search=budi&sort=grade&order=desc
 ```
@@ -301,7 +340,7 @@ GET /students?page=1&limit=5&search=budi&sort=grade&order=desc
 }
 ```
 
-#### 3. GET `/students/:id`
+#### 4. GET `/students/:id`
 ```http
 GET /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 ```
@@ -320,7 +359,7 @@ GET /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 }
 ```
 
-#### 4. PUT `/students/:id`
+#### 5. PUT `/students/:id`
 ```http
 PUT /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 Content-Type: application/json
@@ -347,7 +386,7 @@ Content-Type: application/json
 }
 ```
 
-#### 5. PATCH `/students/:id`
+#### 6. PATCH `/students/:id`
 ```http
 PATCH /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 Content-Type: application/json
@@ -371,7 +410,7 @@ Content-Type: application/json
 }
 ```
 
-#### 6. DELETE `/students/:id`
+#### 7. DELETE `/students/:id`
 ```http
 DELETE /students/e6a0d4c8-3c94-4d89-bcf8-3486c91a3291
 ```
@@ -400,15 +439,16 @@ api-students/
 ├── config/
 │   └── env.go               # Loader & parser konfigurasi .env
 ├── database/
-│   └── postgres.go          # Inisialisasi Connection Pool (pgxpool)
+│   └── postgres.go          # Inisialisasi Connection Pool (pgxpool) & Ping
 ├── migrations/
 │   ├── 001_create_students.sql # Skema tabel students & indeks
 │   └── 001_create_users.sql    # Skema tabel users
 ├── handler.go               # HTTP Handler CRUD Student
 ├── helper.go                # Response envelope JSON & formatting
 ├── model.go                 # Request struct & alias model
-├── main.go                  # Routing & entry point aplikasi
-├── .env.example             # Template konfigurasi environment
+├── main.go                  # Routing, health check & entry point aplikasi
+├── .env.example             # Template konfigurasi environment (nilai kosong)
+├── .gitignore               # Mengabaikan .env dan binary
 ├── go.mod
 └── go.sum
 ```
