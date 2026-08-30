@@ -30,3 +30,15 @@ type PatchStudentRequest struct {
 	Grade    *float64 `json:"grade,omitempty"`
 	IsActive *bool    `json:"is_active,omitempty"`
 }
+
+// StudentQuery menampung semua parameter query yang sudah diparse dan divalidasi
+type StudentQuery struct {
+	Page     int
+	Limit    int
+	Search   string
+	Sort     string
+	Order    string
+	IsActive *bool    
+	GradeMin *float64 
+	GradeMax *float64 
+}
