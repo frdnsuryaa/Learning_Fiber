@@ -1,21 +1,15 @@
-# Environment Variables
 .env
 
-# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-api-students
 
-# Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool
 *.out
 
-# IDE and OS specific files
 .vscode/
 .idea/
 .DS_Store
