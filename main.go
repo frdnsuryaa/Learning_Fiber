@@ -3,24 +3,33 @@ package main
 import (
 	"context"
 	"log"
-	"time"
-
-	"github.com/gofiber/fiber/v2"
+	"log/slog"
 
 	"api-students/app/repository"
+	"api-students/app/service"
 	"api-students/config"
 	"api-students/database"
+	"api-students/route"
 )
 
 func main() {
 	// Memuat file konfigurasi environment (.env)
 	config.LoadEnv()
 
+	// Inisialisasi Logger dengan file logs/app.log dan rotasi
+	logFile, err := config.InitLogger()
+	if err != nil {
+		log.Printf("Peringatan: gagal inisialisasi file logger: %v", err)
+	} else {
+		defer logFile.Close()
+	}
+
 	ctx := context.Background()
 
 	// Inisialisasi koneksi pool ke PostgreSQL (termasuk Ping verifikasi)
 	pool, err := database.NewPool(ctx)
 	if err != nil {
+		slog.Error("Gagal inisialisasi koneksi database", "error", err)
 		log.Fatalf("Gagal inisialisasi koneksi database: %v", err)
 	}
 	defer pool.Close()
@@ -40,53 +49,21 @@ func main() {
 	CREATE INDEX IF NOT EXISTS idx_students_created_at ON students (created_at DESC);
 	`
 	if _, err := pool.Exec(ctx, createTableQuery); err != nil {
+		slog.Error("Gagal inisialisasi tabel students", "error", err)
 		log.Fatalf("Gagal inisialisasi tabel students: %v", err)
 	}
 
-	// Inisialisasi Repository dan Handler
+	// Inisialisasi Layer Repository dan Service
 	studentRepo := repository.NewStudentRepository(pool)
-	studentHandler := NewStudentHandler(studentRepo)
+	studentService := service.NewStudentService(studentRepo)
 
-	app := fiber.New()
+	// Inisialisasi Aplikasi Fiber
+	app := config.NewFiberApp()
 
-	// Route root /
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"message": "Welcome to Student API",
-			"status":  "running",
-		})
-	})
-
-	// Endpoint /health untuk memeriksa kondisi server dan koneksi basis data
-	app.Get("/health", func(c *fiber.Ctx) error {
-		pingCtx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
-		defer cancel()
-
-		if err := pool.Ping(pingCtx); err != nil {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-				"status":   "error",
-				"database": "disconnected",
-				"message":  "Koneksi ke basis data gagal",
-				"error":    err.Error(),
-			})
-		}
-
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"status":   "ok",
-			"database": "connected",
-			"message":  "Server dan basis data berjalan dengan baik",
-		})
-	})
-
-	// Rute siswa (Students CRUD)
-	app.Get("/students", studentHandler.GetAllStudents)
-	app.Get("/students/:id", studentHandler.GetStudentByID)
-	app.Post("/students", studentHandler.CreateStudent)
-	app.Put("/students/:id", studentHandler.UpdateStudent)
-	app.Patch("/students/:id", studentHandler.PatchStudent)
-	app.Delete("/students/:id", studentHandler.DeleteStudent)
+	// Daftarkan Route
+	route.SetupRoute(app, pool, studentService)
 
 	port := config.GetEnv("APP_PORT", "3000")
-	log.Printf("Server berjalan di http://localhost:%s", port)
+	slog.Info("Server berjalan", "port", port, "url", "http://localhost:"+port)
 	log.Fatal(app.Listen(":" + port))
 }

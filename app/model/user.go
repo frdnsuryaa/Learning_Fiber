@@ -2,6 +2,7 @@ package model
 
 import "time"
 
+// User merepresentasikan entitas pengguna di tabel users.
 type User struct {
 	ID        int       `json:"id"`
 	Username  string    `json:"username"`
@@ -11,10 +12,12 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ListQuery berisi parameter query string untuk endpoint list users.
 type ListQuery struct {
 	Page     int
 	Limit    int
 	Search   string
-	SortBy   string
-	SortOrder string
+	Sort     string
+	Order    string
+	IsActive *bool
 }

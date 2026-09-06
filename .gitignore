@@ -1,4 +1,6 @@
 .env
+logs/
+*.log
 
 *.exe
 *.exe~
