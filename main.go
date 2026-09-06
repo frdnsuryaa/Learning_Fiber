@@ -13,10 +13,10 @@ import (
 )
 
 func main() {
-	// Memuat file konfigurasi environment (.env)
+	// 1. Memuat konfigurasi environment (.env)
 	config.LoadEnv()
 
-	// Inisialisasi Logger dengan file logs/app.log dan rotasi
+	// 2. Inisialisasi Logger (output terminal + file logs/app.log)
 	logFile, err := config.InitLogger()
 	if err != nil {
 		log.Printf("Peringatan: gagal inisialisasi file logger: %v", err)
@@ -26,7 +26,7 @@ func main() {
 
 	ctx := context.Background()
 
-	// Inisialisasi koneksi pool ke PostgreSQL (termasuk Ping verifikasi)
+	// 3. Inisialisasi koneksi database PostgreSQL pool
 	pool, err := database.NewPool(ctx)
 	if err != nil {
 		slog.Error("Gagal inisialisasi koneksi database", "error", err)
@@ -34,35 +34,27 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Otomatis membuat tabel students jika belum ada
-	createTableQuery := `
-	CREATE TABLE IF NOT EXISTS students (
-		id VARCHAR(36) PRIMARY KEY,
-		nim VARCHAR(20) NOT NULL,
-		name VARCHAR(255) NOT NULL,
-		grade DOUBLE PRECISION NOT NULL DEFAULT 0,
-		is_active BOOLEAN NOT NULL DEFAULT TRUE,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		CONSTRAINT students_nim_unique UNIQUE (nim)
-	);
-	CREATE INDEX IF NOT EXISTS idx_students_name_lower ON students (LOWER(name));
-	CREATE INDEX IF NOT EXISTS idx_students_created_at ON students (created_at DESC);
-	`
-	if _, err := pool.Exec(ctx, createTableQuery); err != nil {
+	// 4. Migrasi skema database tabel students
+	if err := database.Migrate(ctx, pool); err != nil {
 		slog.Error("Gagal inisialisasi tabel students", "error", err)
 		log.Fatalf("Gagal inisialisasi tabel students: %v", err)
 	}
 
-	// Inisialisasi Layer Repository dan Service
+	// 5. Inisialisasi Layer Repository
+	healthRepo := repository.NewHealthRepository(pool)
 	studentRepo := repository.NewStudentRepository(pool)
+
+	// 6. Inisialisasi Layer Service
+	systemService := service.NewSystemService(healthRepo)
 	studentService := service.NewStudentService(studentRepo)
 
-	// Inisialisasi Aplikasi Fiber
+	// 7. Inisialisasi Aplikasi Web Fiber
 	app := config.NewFiberApp()
 
-	// Daftarkan Route
-	route.SetupRoute(app, pool, studentService)
+	// 8. Pendaftaran Rute
+	route.SetupRoute(app, systemService, studentService)
 
+	// 9. Menjalankan Server
 	port := config.GetEnv("APP_PORT", "3000")
 	slog.Info("Server berjalan", "port", port, "url", "http://localhost:"+port)
 	log.Fatal(app.Listen(":" + port))
