@@ -47,8 +47,8 @@ func TestValidateCreateStudent_Grade_Melebihi_Batas(t *testing.T) {
 
 func TestValidateUpdateStudent_OK(t *testing.T) {
 	req := model.UpdateStudentRequest{
-		NIM:  "12345",
-		Name: "Budi",
+		NIM:   "12345",
+		Name:  "Budi",
 		Grade: 3.5,
 	}
 	errs := ValidateUpdateStudent(req)
@@ -132,7 +132,7 @@ func TestCountTotalPages(t *testing.T) {
 		{11, 10, 2},
 		{100, 10, 10},
 		{1, 10, 1},
-		{0, 0, 0},  // limit nol
+		{0, 0, 0}, // limit nol
 	}
 	for _, tc := range cases {
 		got := CountTotalPages(tc.total, tc.limit)

@@ -6,20 +6,14 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// RequireJSON menolak request POST, PUT, dan PATCH
-// yang tidak menyertakan Content-Type: application/json.
-func RequireJSON() fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		method := c.Method()
-		if method == "POST" || method == "PUT" || method == "PATCH" {
-			ct := c.Get("Content-Type")
-			if !strings.HasPrefix(ct, "application/json") {
-				return c.Status(fiber.StatusUnsupportedMediaType).JSON(fiber.Map{
-					"success": false,
-					"message": "Content-Type harus application/json",
-				})
-			}
-		}
+// RequireJSON menolak request POST, PUT, dan PATCH jika Content-Type bukan application/json.
+func RequireJSON(c *fiber.Ctx) error {
+	if c.Method() == fiber.MethodGet || c.Method() == fiber.MethodDelete {
 		return c.Next()
 	}
+	contentType := strings.ToLower(c.Get("Content-Type"))
+	if !strings.HasPrefix(contentType, "application/json") {
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "Content-Type harus application/json")
+	}
+	return c.Next()
 }

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"api-students/app/model"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"api-students/app/model"
 )
 
 type StudentRepository interface {

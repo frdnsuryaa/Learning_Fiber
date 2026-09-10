@@ -4,57 +4,71 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"os"
+	"time"
 
 	"api-students/app/repository"
 	"api-students/app/service"
 	"api-students/config"
 	"api-students/database"
+	"api-students/helper"
 	"api-students/route"
 )
 
-func main() {
-	// 1. Memuat konfigurasi environment (.env)
-	config.LoadEnv()
+const minSecretLength = 32
 
-	// 2. Inisialisasi Logger (output terminal + file logs/app.log)
-	logFile, err := config.InitLogger()
-	if err != nil {
-		log.Printf("Peringatan: gagal inisialisasi file logger: %v", err)
-	} else {
-		defer logFile.Close()
+func main() {
+	config.LoadEnv()
+	logger := config.NewLogger()
+
+	jwtSecret := config.GetEnv("JWT_SECRET", "")
+	if len(jwtSecret) < minSecretLength {
+		logger.Error("JWT_SECRET tidak diisi atau terlalu pendek",
+			slog.Int("minimal_karakter", minSecretLength))
+		os.Exit(1)
 	}
 
 	ctx := context.Background()
-
-	// 3. Inisialisasi koneksi database PostgreSQL pool
 	pool, err := database.NewPool(ctx)
 	if err != nil {
-		slog.Error("Gagal inisialisasi koneksi database", "error", err)
-		log.Fatalf("Gagal inisialisasi koneksi database: %v", err)
+		logger.Error("gagal terhubung ke database", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
-	// 4. Migrasi skema database tabel students
 	if err := database.Migrate(ctx, pool); err != nil {
-		slog.Error("Gagal inisialisasi tabel students", "error", err)
-		log.Fatalf("Gagal inisialisasi tabel students: %v", err)
+		logger.Error("gagal migrasi database", "error", err)
+		os.Exit(1)
 	}
 
-	// 5. Inisialisasi Layer Repository
-	healthRepo := repository.NewHealthRepository(pool)
-	studentRepo := repository.NewStudentRepository(pool)
+	jwtManager := helper.NewJWTManager(
+		jwtSecret,
+		config.GetEnv("JWT_ISSUER", "praktikum-backend"),
+		time.Duration(config.GetEnvInt("JWT_ACCESS_TTL_MINUTES", 15))*time.Minute,
+	)
 
-	// 6. Inisialisasi Layer Service
-	systemService := service.NewSystemService(healthRepo)
-	studentService := service.NewStudentService(studentRepo)
+	userRepository := repository.NewUserRepository(pool)
+	tokenRepository := repository.NewTokenRepository(pool)
+	studentRepository := repository.NewStudentRepository(pool)
+	healthRepository := repository.NewHealthRepository(pool)
+	systemService := service.NewSystemService(healthRepository)
 
-	// 7. Inisialisasi Aplikasi Web Fiber
+	authService := service.NewAuthService(
+		userRepository,
+		tokenRepository,
+		jwtManager,
+		time.Duration(config.GetEnvInt("JWT_REFRESH_TTL_DAYS", 7))*24*time.Hour,
+	)
+	studentService := service.NewStudentService(studentRepository)
+
 	app := config.NewFiberApp()
+	route.SetupRoute(app, route.Dependencies{
+		JWT:            jwtManager,
+		AuthService:    authService,
+		StudentService: studentService,
+		SystemService:  systemService,
+	})
 
-	// 8. Pendaftaran Rute
-	route.SetupRoute(app, systemService, studentService)
-
-	// 9. Menjalankan Server
 	port := config.GetEnv("APP_PORT", "3000")
 	slog.Info("Server berjalan", "port", port, "url", "http://localhost:"+port)
 	log.Fatal(app.Listen(":" + port))

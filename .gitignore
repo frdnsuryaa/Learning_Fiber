@@ -1,18 +1,13 @@
+# Environment / secrets
 .env
-logs/
-*.log
 
+# Go
+bin/
 *.exe
-*.exe~
-*.dll
-*.so
-*.dylib
 
-*.test
+# Logs
+logs/*.log
 
-*.out
-
+# IDE
 .vscode/
 .idea/
-.DS_Store
-Thumbs.db
