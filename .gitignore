@@ -1,13 +1,13 @@
-# Environment / secrets
-.env
-
-# Go
-bin/
-*.exe
-
-# Logs
-logs/*.log
-
-# IDE
-.vscode/
-.idea/
+a/siakad-mini\.gitignore → b/siakad-mini\.gitignore
+@@ -0,0 +1,11 @@
++.env
++.env.local
++vendor/
++*.exe
++siakad-mini
++siakad-mini.exe
++.DS_Store
++*.log
++.idea/
++*.iml
++dist/

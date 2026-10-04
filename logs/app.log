@@ -1,0 +1,4 @@
+{"time":"2026-09-06T23:37:30.0432793+07:00","level":"INFO","msg":"http_request","request_id":"550e8400-e29b-41d4-a716-446655440000","method":"POST","path":"/students","status":201,"duration_ms":45}
+{"time":"2026-09-06T23:40:00.1563228+07:00","level":"INFO","msg":"http_request","request_id":"a1b2c3d4-e5f6-7890-1234-567890abcdef","method":"GET","path":"/students?page=1&limit=10&search=budi&sort=name&order=asc&is_active=true","status":200,"duration_ms":7}
+{"time":"2026-09-07T13:14:10.6752263+07:00","level":"INFO","msg":"Server berjalan","port":"3000","url":"http://localhost:3000"}
+{"time":"2026-09-07T13:14:20.0277946+07:00","level":"INFO","msg":"http_request","request_id":"ec84a746-fff1-440c-8b74-eea7c6aca4e0","method":"GET","path":"/","status":200,"duration_ms":0}
