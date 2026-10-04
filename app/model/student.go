@@ -2,50 +2,70 @@ package model
 
 import "time"
 
-// Student merepresentasikan entitas mahasiswa di tabel students.
+// Student merepresentasikan baris pada tabel students.
 type Student struct {
-	ID        string    `json:"id"`
-	NIM       string    `json:"nim"`
-	Name      string    `json:"name"`
-	Grade     float64   `json:"grade"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	ID          int        `json:"id"`
+	UserID      int        `json:"user_id,omitempty"`
+	NIM         string     `json:"nim"`
+	Nama        string     `json:"nama"`
+	Prodi       string     `json:"prodi"`
+	Angkatan    int        `json:"angkatan"`
+	IPKTerakhir float64    `json:"ipk_terakhir"`
+	DeletedAt   *time.Time `json:"-"`
+}
+
+// StudentDetail adalah response GET /students/{id} yang menyertakan daftar mata kuliah.
+type StudentDetail struct {
+	ID          int          `json:"id"`
+	UserID      int          `json:"user_id,omitempty"`
+	NIM         string       `json:"nim"`
+	Nama        string       `json:"nama"`
+	Prodi       string       `json:"prodi"`
+	Angkatan    int          `json:"angkatan"`
+	IPKTerakhir float64      `json:"ipk_terakhir"`
+	TotalSKS    int          `json:"total_sks"`
+	BatasSKS    int          `json:"batas_sks"`
+	MataKuliah  []Enrollment `json:"mata_kuliah"`
 }
 
 // StudentQuery berisi parameter query string untuk GET /students.
 type StudentQuery struct {
 	Page     int
-	Limit    int
+	PerPage  int
 	Search   string
-	Sort     string
-	Order    string
-	IsActive *bool
-	GradeMin *float64
-	GradeMax *float64
+	Prodi    string
+	Angkatan *int
+	Sort     string // "nama" atau "-ipk_terakhir"
 }
 
-// ── Student request structs ──
-
-// CreateStudentRequest digunakan untuk POST /students.
-// Semua field wajib diisi; ID dan created_at di-generate oleh server.
+// CreateStudentRequest untuk POST /api/v1/students.
 type CreateStudentRequest struct {
-	NIM      string  `json:"nim"`
-	Name     string  `json:"name"`
-	Grade    float64 `json:"grade"`
-	IsActive bool    `json:"is_active"`
+	NIM         string  `json:"nim"`
+	Nama        string  `json:"nama"`
+	Email       string  `json:"email"`
+	Prodi       string  `json:"prodi"`
+	Angkatan    int     `json:"angkatan"`
+	IPKTerakhir float64 `json:"ipk_terakhir"`
 }
 
-// UpdateStudentRequest digunakan untuk PUT /students/:id.
-// Merupakan replace penuh — semua field wajib diisi.
+// UpdateStudentRequest untuk PUT /api/v1/students/{id}.
 type UpdateStudentRequest struct {
-	NIM      string  `json:"nim"`
-	Name     string  `json:"name"`
-	Grade    float64 `json:"grade"`
-	IsActive bool    `json:"is_active"`
+	Nama        string  `json:"nama"`
+	Prodi       string  `json:"prodi"`
+	Angkatan    int     `json:"angkatan"`
+	IPKTerakhir float64 `json:"ipk_terakhir"`
 }
 
-// PatchStudentRequest digunakan untuk PATCH /students/:id.
-// Semua field bersifat opsional; hanya field yang dikirim yang akan diperbarui.
+// Meta adalah objek paginasi pada response list.
+type Meta struct {
+	CurrentPage int `json:"current_page"`
+	PerPage     int `json:"per_page"`
+	Total       int `json:"total"`
+	LastPage    int `json:"last_page"`
+}
+
+// ── Struct lama dipertahankan agar test tidak break ────────────────────────
+// PatchStudentRequest — dipakai oleh student_rules_test.go.
 type PatchStudentRequest struct {
 	NIM      *string  `json:"nim,omitempty"`
 	Name     *string  `json:"name,omitempty"`
