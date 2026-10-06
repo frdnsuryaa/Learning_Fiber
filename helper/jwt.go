@@ -17,8 +17,7 @@ var (
 )
 
 type accessClaims struct {
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	Role string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -36,11 +35,11 @@ func (m *JWTManager) AccessTTL() time.Duration {
 	return m.accessTTL
 }
 
+// GenerateAccess membuat JWT access token untuk user.
 func (m *JWTManager) GenerateAccess(u model.User) (string, error) {
 	now := time.Now()
 	claims := accessClaims{
-		Username: u.Username,
-		Role:     u.Role,
+		Role: u.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   strconv.Itoa(u.ID),
 			Issuer:    m.issuer,
@@ -52,10 +51,10 @@ func (m *JWTManager) GenerateAccess(u model.User) (string, error) {
 	return token.SignedString(m.secret)
 }
 
+// Parse memvalidasi access token dan mengembalikan AuthUser.
 func (m *JWTManager) Parse(tokenString string) (model.AuthUser, error) {
 	claims := &accessClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
-		// Wajib memastikan algoritma HMAC yang digunakan.
 		if t.Method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("algoritma tidak diharapkan: %v", t.Header["alg"])
 		}
@@ -77,6 +76,7 @@ func (m *JWTManager) Parse(tokenString string) (model.AuthUser, error) {
 		return model.AuthUser{}, ErrInvalidToken
 	}
 	return model.AuthUser{
-		UserID: userID, Username: claims.Username, Role: claims.Role,
+		UserID: userID,
+		Role:   claims.Role,
 	}, nil
 }

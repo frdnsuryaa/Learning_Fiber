@@ -33,10 +33,16 @@ func Fail(c *fiber.Ctx, status int, message string) error {
 	})
 }
 
+// FailValidation mengembalikan 422 dengan format errors map[string][]string sesuai spec.
 func FailValidation(c *fiber.Ctx, errs map[string]string) error {
+	// Konversi ke map[string][]string sesuai format spec
+	converted := make(map[string][]string, len(errs))
+	for k, v := range errs {
+		converted[k] = []string{v}
+	}
 	return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
 		"success": false,
-		"message": "validasi gagal",
-		"errors":  errs,
+		"message": "Validasi gagal",
+		"errors":  converted,
 	})
 }

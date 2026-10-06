@@ -15,15 +15,15 @@ import (
 var (
 	ErrNotFound  = errors.New("data tidak ditemukan")
 	ErrDuplicate = errors.New("data sudah ada")
+	ErrForbidden = errors.New("akses ditolak")
 )
 
+// UserRepository mendefinisikan operasi database untuk tabel users.
 type UserRepository interface {
-	FindAll(ctx context.Context, q model.ListQuery) ([]model.User, int, error)
 	FindByID(ctx context.Context, id int) (model.User, error)
-	FindByUsername(ctx context.Context, username string) (model.User, error)
+	FindByEmail(ctx context.Context, email string) (model.User, error)
 	Create(ctx context.Context, u model.User) (model.User, error)
 	Update(ctx context.Context, u model.User) (model.User, error)
-	Delete(ctx context.Context, id int) error
 }
 
 type userPostgresRepository struct {
@@ -36,14 +36,13 @@ func NewUserRepository(pool *pgxpool.Pool) UserRepository {
 
 func (r *userPostgresRepository) Create(ctx context.Context, u model.User) (model.User, error) {
 	query := `
-		INSERT INTO users (username, email, password, role, is_active, created_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
-		RETURNING id, username, email, role, is_active, created_at
+		INSERT INTO users (email, password, role)
+		VALUES ($1, $2, $3)
+		RETURNING id, email, role, created_at
 	`
 	var created model.User
-	err := r.pool.QueryRow(ctx, query, u.Username, u.Email, u.Password, u.Role, u.IsActive).Scan(
-		&created.ID, &created.Username, &created.Email, &created.Role,
-		&created.IsActive, &created.CreatedAt,
+	err := r.pool.QueryRow(ctx, query, u.Email, u.Password, u.Role).Scan(
+		&created.ID, &created.Email, &created.Role, &created.CreatedAt,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -57,12 +56,12 @@ func (r *userPostgresRepository) Create(ctx context.Context, u model.User) (mode
 
 func (r *userPostgresRepository) FindByID(ctx context.Context, id int) (model.User, error) {
 	query := `
-		SELECT id, username, email, role, is_active, created_at
+		SELECT id, email, role, created_at
 		FROM users WHERE id = $1
 	`
 	var u model.User
 	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.CreatedAt,
+		&u.ID, &u.Email, &u.Role, &u.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -73,52 +72,32 @@ func (r *userPostgresRepository) FindByID(ctx context.Context, id int) (model.Us
 	return u, nil
 }
 
-func (r *userPostgresRepository) FindByUsername(ctx context.Context, username string) (model.User, error) {
+func (r *userPostgresRepository) FindByEmail(ctx context.Context, email string) (model.User, error) {
 	var u model.User
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, username, email, password, role, is_active, created_at
-		 FROM users WHERE LOWER(username) = LOWER($1)`,
-		username,
-	).Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.Role, &u.IsActive, &u.CreatedAt)
+		`SELECT id, email, password, role, created_at
+		 FROM users WHERE LOWER(email) = LOWER($1)`,
+		email,
+	).Scan(&u.ID, &u.Email, &u.Password, &u.Role, &u.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, ErrNotFound
 		}
-		return model.User{}, fmt.Errorf("mengambil user: %w", err)
+		return model.User{}, fmt.Errorf("mengambil user by email: %w", err)
 	}
 	return u, nil
-}
-
-func (r *userPostgresRepository) FindAll(ctx context.Context, q model.ListQuery) ([]model.User, int, error) {
-	query := `SELECT id, username, email, role, is_active, created_at FROM users ORDER BY id`
-	rows, err := r.pool.Query(ctx, query)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	users := make([]model.User, 0)
-	for rows.Next() {
-		var u model.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.IsActive, &u.CreatedAt); err != nil {
-			return nil, 0, err
-		}
-		users = append(users, u)
-	}
-	return users, len(users), rows.Err()
 }
 
 func (r *userPostgresRepository) Update(ctx context.Context, u model.User) (model.User, error) {
 	query := `
 		UPDATE users
-		SET username = $1, email = $2, is_active = $3
-		WHERE id = $4
-		RETURNING id, username, email, role, is_active, created_at
+		SET email = $1
+		WHERE id = $2
+		RETURNING id, email, role, created_at
 	`
 	var updated model.User
-	err := r.pool.QueryRow(ctx, query, u.Username, u.Email, u.IsActive, u.ID).Scan(
-		&updated.ID, &updated.Username, &updated.Email, &updated.Role,
-		&updated.IsActive, &updated.CreatedAt,
+	err := r.pool.QueryRow(ctx, query, u.Email, u.ID).Scan(
+		&updated.ID, &updated.Email, &updated.Role, &updated.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -127,15 +106,4 @@ func (r *userPostgresRepository) Update(ctx context.Context, u model.User) (mode
 		return model.User{}, fmt.Errorf("gagal update user: %w", err)
 	}
 	return updated, nil
-}
-
-func (r *userPostgresRepository) Delete(ctx context.Context, id int) error {
-	cmdTag, err := r.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("gagal delete user: %w", err)
-	}
-	if cmdTag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
