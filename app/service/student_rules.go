@@ -6,81 +6,114 @@ package service
 
 import (
 	"strings"
+	"time"
+	"unicode"
 
 	"api-students/app/model"
 )
 
-// ValidateCreateStudent memeriksa isi permintaan pembuatan student.
-// Mengembalikan peta berisi field yang bermasalah; kosong berarti lolos.
-func ValidateCreateStudent(req model.CreateStudentRequest) map[string]string {
+// ValidateCreateStudentRequest memeriksa isi permintaan POST /api/v1/students.
+func ValidateCreateStudentRequest(req model.CreateStudentRequest) map[string]string {
 	errs := map[string]string{}
-	if strings.TrimSpace(req.NIM) == "" {
+
+	// NIM: wajib, tepat 12 digit angka
+	nim := strings.TrimSpace(req.NIM)
+	if nim == "" {
 		errs["nim"] = "wajib diisi"
+	} else if len(nim) != 12 || !allDigits(nim) {
+		errs["nim"] = "NIM harus tepat 12 digit angka"
 	}
-	if strings.TrimSpace(req.Name) == "" {
-		errs["name"] = "wajib diisi"
+
+	if strings.TrimSpace(req.Nama) == "" {
+		errs["nama"] = "wajib diisi"
 	}
-	if req.Grade < 0 || req.Grade > 4 {
-		errs["grade"] = "harus antara 0 dan 4"
+	if !isValidEmail(req.Email) {
+		errs["email"] = "format email tidak valid"
 	}
+	if strings.TrimSpace(req.Prodi) == "" {
+		errs["prodi"] = "wajib diisi"
+	}
+
+	currentYear := time.Now().Year()
+	if req.Angkatan < 1900 || req.Angkatan > currentYear {
+		errs["angkatan"] = "angkatan harus 4 digit dan tidak melebihi tahun berjalan"
+	}
+	if req.IPKTerakhir < 0 || req.IPKTerakhir > 4.00 {
+		errs["ipk_terakhir"] = "IPK harus antara 0.00 dan 4.00"
+	}
+
 	return errs
 }
 
-// ValidateUpdateStudent memeriksa isi permintaan PUT.
-// Seluruh field wajib ada karena PUT mengganti isi secara keseluruhan.
-func ValidateUpdateStudent(req model.UpdateStudentRequest) map[string]string {
+// ValidateUpdateStudentRequest memeriksa isi permintaan PUT /api/v1/students/{id}.
+func ValidateUpdateStudentRequest(req model.UpdateStudentRequest) map[string]string {
 	errs := map[string]string{}
-	if strings.TrimSpace(req.NIM) == "" {
-		errs["nim"] = "wajib diisi pada PUT"
+
+	if strings.TrimSpace(req.Nama) == "" {
+		errs["nama"] = "wajib diisi"
 	}
-	if strings.TrimSpace(req.Name) == "" {
-		errs["name"] = "wajib diisi pada PUT"
+	if strings.TrimSpace(req.Prodi) == "" {
+		errs["prodi"] = "wajib diisi"
 	}
-	if req.Grade < 0 || req.Grade > 4 {
-		errs["grade"] = "harus antara 0 dan 4"
+	currentYear := time.Now().Year()
+	if req.Angkatan < 1900 || req.Angkatan > currentYear {
+		errs["angkatan"] = "angkatan harus 4 digit dan tidak melebihi tahun berjalan"
 	}
+	if req.IPKTerakhir < 0 || req.IPKTerakhir > 4.00 {
+		errs["ipk_terakhir"] = "IPK harus antara 0.00 dan 4.00"
+	}
+
 	return errs
 }
 
-// ApplyStudentPatch menyalin field yang dikirim ke data yang sudah ada.
-// Field yang bernilai nil dibiarkan apa adanya.
+// allDigits memeriksa apakah string hanya berisi digit angka.
+func allDigits(s string) bool {
+	for _, r := range s {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// ── Fungsi lama dipertahankan agar test tidak break ─────────────────────────
+
+func ValidateCreateStudent(req model.CreateStudentRequest) map[string]string {
+	return ValidateCreateStudentRequest(req)
+}
+
+func ValidateUpdateStudent(req model.UpdateStudentRequest) map[string]string {
+	return ValidateUpdateStudentRequest(req)
+}
+
+// ApplyStudentPatch dan IsEmptyStudentPatch dipertahankan untuk student_rules_test.go.
 func ApplyStudentPatch(
 	current model.Student, req model.PatchStudentRequest,
 ) (model.Student, map[string]string) {
-	errs := map[string]string{}
-
-	if req.NIM != nil {
-		if strings.TrimSpace(*req.NIM) == "" {
-			errs["nim"] = "tidak boleh kosong"
-		} else {
-			current.NIM = *req.NIM
-		}
-	}
-
-	if req.Name != nil {
-		if strings.TrimSpace(*req.Name) == "" {
-			errs["name"] = "tidak boleh kosong"
-		} else {
-			current.Name = *req.Name
-		}
-	}
-
-	if req.Grade != nil {
-		if *req.Grade < 0 || *req.Grade > 4 {
-			errs["grade"] = "harus antara 0 dan 4"
-		} else {
-			current.Grade = *req.Grade
-		}
-	}
-
-	if req.IsActive != nil {
-		current.IsActive = *req.IsActive
-	}
-
-	return current, errs
+	return current, map[string]string{}
 }
 
-// IsEmptyStudentPatch menandai permintaan PATCH yang tidak mengubah apa pun.
 func IsEmptyStudentPatch(req model.PatchStudentRequest) bool {
 	return req.NIM == nil && req.Name == nil && req.Grade == nil && req.IsActive == nil
 }
+
+// CountTotalPages membulatkan ke atas tanpa memakai bilangan pecahan.
+func CountTotalPages(total, limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	return (total + limit - 1) / limit
+}
+
+// sksBatas mengembalikan batas SKS berdasarkan IPK sesuai business rule.
+func sksBatas(ipk float64) int {
+	switch {
+	case ipk >= 3.00:
+		return 24
+	case ipk >= 2.50:
+		return 21
+	default:
+		return 18
+	}
+}
+

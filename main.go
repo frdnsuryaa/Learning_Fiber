@@ -36,9 +36,16 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Jalankan migrasi
 	if err := database.Migrate(ctx, pool); err != nil {
 		logger.Error("gagal migrasi database", "error", err)
 		os.Exit(1)
+	}
+
+	// Jalankan seeder (idempoten)
+	if err := database.Seed(ctx, pool); err != nil {
+		logger.Error("gagal menjalankan seeder", "error", err)
+		// Tidak exit — seeder gagal tidak seharusnya menghentikan server
 	}
 
 	jwtManager := helper.NewJWTManager(
@@ -47,26 +54,35 @@ func main() {
 		time.Duration(config.GetEnvInt("JWT_ACCESS_TTL_MINUTES", 15))*time.Minute,
 	)
 
+	// Repositories
 	userRepository := repository.NewUserRepository(pool)
 	tokenRepository := repository.NewTokenRepository(pool)
 	studentRepository := repository.NewStudentRepository(pool)
+	courseRepository := repository.NewCourseRepository(pool)
+	enrollmentRepository := repository.NewEnrollmentRepository(pool)
 	healthRepository := repository.NewHealthRepository(pool)
-	systemService := service.NewSystemService(healthRepository)
 
+	// Services
+	systemService := service.NewSystemService(healthRepository)
 	authService := service.NewAuthService(
 		userRepository,
 		tokenRepository,
+		studentRepository,
 		jwtManager,
 		time.Duration(config.GetEnvInt("JWT_REFRESH_TTL_DAYS", 7))*24*time.Hour,
 	)
 	studentService := service.NewStudentService(studentRepository)
+	courseService := service.NewCourseService(courseRepository)
+	enrollmentService := service.NewEnrollmentService(enrollmentRepository, studentRepository, courseRepository)
 
 	app := config.NewFiberApp()
 	route.SetupRoute(app, route.Dependencies{
-		JWT:            jwtManager,
-		AuthService:    authService,
-		StudentService: studentService,
-		SystemService:  systemService,
+		JWT:               jwtManager,
+		AuthService:       authService,
+		StudentService:    studentService,
+		CourseService:     courseService,
+		EnrollmentService: enrollmentService,
+		SystemService:     systemService,
 	})
 
 	port := config.GetEnv("APP_PORT", "3000")

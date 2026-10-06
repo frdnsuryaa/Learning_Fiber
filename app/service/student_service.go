@@ -2,9 +2,10 @@ package service
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 
 	"api-students/app/model"
 	"api-students/app/repository"
@@ -12,8 +13,6 @@ import (
 )
 
 // StudentService menangani HTTP request untuk entitas Student.
-// Ia bertindak sebagai penerima fiber.Ctx yang mendelegasikan
-// business rules ke student_rules.go dan akses data ke repository.
 type StudentService struct {
 	repo repository.StudentRepository
 }
@@ -23,155 +22,196 @@ func NewStudentService(repo repository.StudentRepository) *StudentService {
 	return &StudentService{repo: repo}
 }
 
-// GetAllStudents menangani GET /students
-// Mendukung paginasi, pencarian nama/NIM, pengurutan, dan filter is_active / rentang grade.
+// GET /api/v1/students — hanya admin
 func (s *StudentService) GetAllStudents(c *fiber.Ctx) error {
-	q, errMsg := helper.ParseStudentQuery(c)
-	if errMsg != "" {
-		return helper.Fail(c, fiber.StatusBadRequest, errMsg)
+	authUser, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+	if authUser.Role != "admin" {
+		return helper.Fail(c, fiber.StatusForbidden, "hanya admin yang dapat mengakses endpoint ini")
 	}
 
+	q := parseStudentQuery(c)
 	students, total, err := s.repo.FindAll(c.Context(), q)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal mengambil data mahasiswa")
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mahasiswa")
 	}
 
-	totalPages := CountTotalPages(total, q.Limit)
-	if totalPages == 0 {
-		totalPages = 1
+	lastPage := (total + q.PerPage - 1) / q.PerPage
+	if lastPage == 0 {
+		lastPage = 1
 	}
-
-	meta := &model.Meta{
-		Page:       q.Page,
-		Limit:      q.Limit,
-		Total:      total,
-		TotalPages: totalPages,
+	meta := model.Meta{
+		CurrentPage: q.Page,
+		PerPage:     q.PerPage,
+		Total:       total,
+		LastPage:    lastPage,
 	}
-
-	return helper.SuccessList(c, "Students retrieved successfully", students, meta)
+	return helper.SuccessList(c, "data mahasiswa berhasil diambil", students, meta)
 }
 
-// GetStudentByID menangani GET /students/:id
-// Mengembalikan satu siswa berdasarkan ID-nya.
+// GET /api/v1/students/:id — admin atau mahasiswa milik sendiri
 func (s *StudentService) GetStudentByID(c *fiber.Ctx) error {
-	id := c.Params("id")
+	authUser, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
 
-	student, err := s.repo.FindByID(c.Context(), id)
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil || id < 1 {
+		return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
+	}
+
+	detail, err := s.repo.FindDetailByID(c.Context(), id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return helper.Fail(c, fiber.StatusNotFound, "Student not found")
+			return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
 		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal mengambil data mahasiswa")
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mahasiswa")
 	}
 
-	return helper.Success(c, fiber.StatusOK, "Student retrieved successfully", student)
+	// Mahasiswa hanya boleh akses data miliknya sendiri
+	if authUser.Role == "mahasiswa" && detail.UserID != authUser.UserID {
+		return helper.Fail(c, fiber.StatusForbidden, "anda tidak dapat mengakses data mahasiswa lain")
+	}
+
+	detail.UserID = 0 // sembunyikan dari response
+	return helper.Success(c, fiber.StatusOK, "data mahasiswa berhasil diambil", detail)
 }
 
-// CreateStudent menangani POST /students
-// Membuat siswa baru dari body request dan menyimpannya di PostgreSQL.
+// POST /api/v1/students — hanya admin
 func (s *StudentService) CreateStudent(c *fiber.Ctx) error {
-	var req model.CreateStudentRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "Invalid request body")
+	authUser, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+	if authUser.Role != "admin" {
+		return helper.Fail(c, fiber.StatusForbidden, "hanya admin yang dapat menambah mahasiswa")
 	}
 
-	// Validasi menggunakan business rules murni
-	if errs := ValidateCreateStudent(req); len(errs) > 0 {
+	var req model.CreateStudentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.Fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
+	}
+	req.NIM = strings.TrimSpace(req.NIM)
+	req.Nama = strings.TrimSpace(req.Nama)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Prodi = strings.TrimSpace(req.Prodi)
+
+	if errs := ValidateCreateStudentRequest(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
 
-	newStudent := model.Student{
-		ID:       uuid.NewString(),
-		NIM:      req.NIM,
-		Name:     req.Name,
-		Grade:    req.Grade,
-		IsActive: req.IsActive,
+	// Password awal = NIM
+	hashed, err := helper.HashPassword(req.NIM)
+	if err != nil {
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal memproses password")
 	}
 
-	created, err := s.repo.Create(c.Context(), newStudent)
+	_, student, err := s.repo.CreateWithUser(c.Context(), req.Email, hashed, model.Student{
+		NIM:         req.NIM,
+		Nama:        req.Nama,
+		Prodi:       req.Prodi,
+		Angkatan:    req.Angkatan,
+		IPKTerakhir: req.IPKTerakhir,
+	})
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicate) {
-			return helper.Fail(c, fiber.StatusConflict, "NIM sudah terdaftar")
+			return helper.FailValidation(c, map[string]string{
+				"nim":   "NIM atau email sudah terdaftar",
+				"email": "NIM atau email sudah terdaftar",
+			})
 		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal membuat data mahasiswa")
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal membuat data mahasiswa")
 	}
 
-	return helper.Success(c, fiber.StatusCreated, "Student created successfully", created)
+	return helper.Success(c, fiber.StatusCreated, "data mahasiswa berhasil dibuat", student)
 }
 
-// UpdateStudent menangani PUT /students/:id
-// Mengganti seluruh data siswa berdasarkan ID.
+// PUT /api/v1/students/:id — hanya admin
 func (s *StudentService) UpdateStudent(c *fiber.Ctx) error {
-	id := c.Params("id")
+	authUser, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+	if authUser.Role != "admin" {
+		return helper.Fail(c, fiber.StatusForbidden, "hanya admin yang dapat memperbarui data mahasiswa")
+	}
+
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil || id < 1 {
+		return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
+	}
 
 	var req model.UpdateStudentRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "Invalid request body")
+		return helper.Fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
 	}
+	req.Nama = strings.TrimSpace(req.Nama)
+	req.Prodi = strings.TrimSpace(req.Prodi)
 
-	// Validasi menggunakan business rules murni
-	if errs := ValidateUpdateStudent(req); len(errs) > 0 {
+	if errs := ValidateUpdateStudentRequest(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
 
-	updateStudent := model.Student{
-		ID:       id,
-		NIM:      req.NIM,
-		Name:     req.Name,
-		Grade:    req.Grade,
-		IsActive: req.IsActive,
-	}
-
-	updated, err := s.repo.Update(c.Context(), updateStudent)
+	// Pastikan ada
+	existing, err := s.repo.FindByID(c.Context(), id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return helper.Fail(c, fiber.StatusNotFound, "Student not found")
+			return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
 		}
-		if errors.Is(err, repository.ErrDuplicate) {
-			return helper.Fail(c, fiber.StatusConflict, "NIM sudah terdaftar")
-		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memperbarui data mahasiswa")
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mahasiswa")
 	}
 
-	return helper.Success(c, fiber.StatusOK, "Student updated successfully", updated)
-}
+	existing.Nama = req.Nama
+	existing.Prodi = req.Prodi
+	existing.Angkatan = req.Angkatan
+	existing.IPKTerakhir = req.IPKTerakhir
 
-// PatchStudent menangani PATCH /students/:id
-// Memperbarui sebagian data siswa, hanya field yang dikirim yang akan diubah.
-func (s *StudentService) PatchStudent(c *fiber.Ctx) error {
-	id := c.Params("id")
-
-	var req model.PatchStudentRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.Fail(c, fiber.StatusBadRequest, "Invalid request body")
-	}
-
-	patched, err := s.repo.Patch(c.Context(), id, req.NIM, req.Name, req.Grade, req.IsActive)
+	updated, err := s.repo.Update(c.Context(), existing)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return helper.Fail(c, fiber.StatusNotFound, "Student not found")
+			return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
 		}
-		if errors.Is(err, repository.ErrDuplicate) {
-			return helper.Fail(c, fiber.StatusConflict, "NIM sudah terdaftar")
-		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal memperbarui data mahasiswa")
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal memperbarui data mahasiswa")
 	}
 
-	return helper.Success(c, fiber.StatusOK, "Student patched successfully", patched)
+	return helper.Success(c, fiber.StatusOK, "data mahasiswa berhasil diperbarui", updated)
 }
 
-// DeleteStudent menangani DELETE /students/:id
-// Menghapus siswa berdasarkan ID.
+// DELETE /api/v1/students/:id — hanya admin (soft delete)
 func (s *StudentService) DeleteStudent(c *fiber.Ctx) error {
-	id := c.Params("id")
-
-	err := s.repo.Delete(c.Context(), id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return helper.Fail(c, fiber.StatusNotFound, "Student not found")
-		}
-		return helper.Fail(c, fiber.StatusInternalServerError, "Gagal menghapus data mahasiswa")
+	authUser, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+	if authUser.Role != "admin" {
+		return helper.Fail(c, fiber.StatusForbidden, "hanya admin yang dapat menghapus mahasiswa")
 	}
 
-	return helper.Success(c, fiber.StatusOK, "Student deleted successfully", nil)
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil || id < 1 {
+		return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
+	}
+
+	if err := s.repo.SoftDelete(c.Context(), id); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return helper.Fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
+		}
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal menghapus data mahasiswa")
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
 }
+
+// PatchStudent dipertahankan agar route lama tidak error (tidak dipakai di spec baru)
+func (s *StudentService) PatchStudent(c *fiber.Ctx) error {
+	return helper.Fail(c, fiber.StatusMethodNotAllowed, "endpoint ini tidak tersedia")
+}
+
+// parseStudentQuery mem-parse query string untuk GET /api/v1/students.
+func parseStudentQuery(c *fiber.Ctx) model.StudentQuery {
+	return helper.ParseStudentQuery(c)
+}
+

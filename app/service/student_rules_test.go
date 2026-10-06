@@ -6,118 +6,152 @@ import (
 	"api-students/app/model"
 )
 
-// ── Test ValidateCreateStudent (POST) ──
+// ── Test ValidateCreateStudentRequest (POST) ──
 
-func TestValidateCreateStudent_OK(t *testing.T) {
+func TestValidateCreateStudentRequest_OK(t *testing.T) {
 	req := model.CreateStudentRequest{
-		NIM:  "12345",
-		Name: "Budi",
+		NIM:         "123456789012",
+		Nama:        "Budi Santoso",
+		Email:       "budi@example.com",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.75,
 	}
-	errs := ValidateCreateStudent(req)
+	errs := ValidateCreateStudentRequest(req)
 	if len(errs) != 0 {
 		t.Fatalf("seharusnya tidak ada error, dapat: %v", errs)
 	}
 }
 
-func TestValidateCreateStudent_NIM_Kosong(t *testing.T) {
-	req := model.CreateStudentRequest{Name: "Budi"}
-	errs := ValidateCreateStudent(req)
+func TestValidateCreateStudentRequest_NIM_Kosong(t *testing.T) {
+	req := model.CreateStudentRequest{
+		Nama:        "Budi Santoso",
+		Email:       "budi@example.com",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.75,
+	}
+	errs := ValidateCreateStudentRequest(req)
 	if _, ok := errs["nim"]; !ok {
 		t.Fatal("seharusnya ada error untuk field nim")
 	}
 }
 
-func TestValidateCreateStudent_Name_Kosong(t *testing.T) {
-	req := model.CreateStudentRequest{NIM: "12345"}
-	errs := ValidateCreateStudent(req)
-	if _, ok := errs["name"]; !ok {
-		t.Fatal("seharusnya ada error untuk field name")
+func TestValidateCreateStudentRequest_NIM_Bukan12Digit(t *testing.T) {
+	req := model.CreateStudentRequest{
+		NIM:         "12345",
+		Nama:        "Budi Santoso",
+		Email:       "budi@example.com",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.75,
+	}
+	errs := ValidateCreateStudentRequest(req)
+	if _, ok := errs["nim"]; !ok {
+		t.Fatal("seharusnya ada error untuk nim bukan 12 digit")
 	}
 }
 
-func TestValidateCreateStudent_Grade_Melebihi_Batas(t *testing.T) {
-	req := model.CreateStudentRequest{NIM: "12345", Name: "Budi", Grade: 5.0}
-	errs := ValidateCreateStudent(req)
-	if _, ok := errs["grade"]; !ok {
-		t.Fatal("seharusnya ada error untuk field grade")
+func TestValidateCreateStudentRequest_Nama_Kosong(t *testing.T) {
+	req := model.CreateStudentRequest{
+		NIM:         "123456789012",
+		Email:       "budi@example.com",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.75,
+	}
+	errs := ValidateCreateStudentRequest(req)
+	if _, ok := errs["nama"]; !ok {
+		t.Fatal("seharusnya ada error untuk field nama")
 	}
 }
 
-// ── Test ValidateUpdateStudent (PUT) ──
+func TestValidateCreateStudentRequest_Email_Invalid(t *testing.T) {
+	req := model.CreateStudentRequest{
+		NIM:         "123456789012",
+		Nama:        "Budi Santoso",
+		Email:       "invalid-email",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.75,
+	}
+	errs := ValidateCreateStudentRequest(req)
+	if _, ok := errs["email"]; !ok {
+		t.Fatal("seharusnya ada error untuk email invalid")
+	}
+}
 
-func TestValidateUpdateStudent_OK(t *testing.T) {
+func TestValidateCreateStudentRequest_IPK_Melebihi_Batas(t *testing.T) {
+	req := model.CreateStudentRequest{
+		NIM:         "123456789012",
+		Nama:        "Budi Santoso",
+		Email:       "budi@example.com",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 4.50,
+	}
+	errs := ValidateCreateStudentRequest(req)
+	if _, ok := errs["ipk_terakhir"]; !ok {
+		t.Fatal("seharusnya ada error untuk field ipk_terakhir")
+	}
+}
+
+// ── Test ValidateUpdateStudentRequest (PUT) ──
+
+func TestValidateUpdateStudentRequest_OK(t *testing.T) {
 	req := model.UpdateStudentRequest{
-		NIM:   "12345",
-		Name:  "Budi",
-		Grade: 3.5,
+		Nama:        "Budi Santoso",
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.80,
 	}
-	errs := ValidateUpdateStudent(req)
+	errs := ValidateUpdateStudentRequest(req)
 	if len(errs) != 0 {
 		t.Fatalf("seharusnya tidak ada error, dapat: %v", errs)
 	}
 }
 
-func TestValidateUpdateStudent_NIM_Kosong(t *testing.T) {
-	req := model.UpdateStudentRequest{Name: "Budi", Grade: 3.0}
-	errs := ValidateUpdateStudent(req)
-	if _, ok := errs["nim"]; !ok {
-		t.Fatal("seharusnya ada error untuk field nim pada PUT")
+func TestValidateUpdateStudentRequest_Nama_Kosong(t *testing.T) {
+	req := model.UpdateStudentRequest{
+		Prodi:       "Informatika",
+		Angkatan:    2023,
+		IPKTerakhir: 3.80,
+	}
+	errs := ValidateUpdateStudentRequest(req)
+	if _, ok := errs["nama"]; !ok {
+		t.Fatal("seharusnya ada error untuk field nama pada PUT")
 	}
 }
 
-func TestValidateUpdateStudent_Semua_Kosong(t *testing.T) {
+func TestValidateUpdateStudentRequest_Semua_Kosong(t *testing.T) {
 	req := model.UpdateStudentRequest{}
-	errs := ValidateUpdateStudent(req)
+	errs := ValidateUpdateStudentRequest(req)
 	if len(errs) < 2 {
 		t.Fatalf("seharusnya ada minimal 2 error, dapat: %v", errs)
 	}
 }
 
-// ── Test ApplyStudentPatch (PATCH) ──
+// ── Test sksBatas ──
 
-func TestApplyStudentPatch_Partial(t *testing.T) {
-	current := model.Student{
-		ID:       "abc",
-		NIM:      "11111",
-		Name:     "Lama",
-		Grade:    2.0,
-		IsActive: true,
+func TestSksBatas(t *testing.T) {
+	cases := []struct {
+		ipk  float64
+		want int
+	}{
+		{4.00, 24},
+		{3.50, 24},
+		{3.00, 24},
+		{2.99, 21},
+		{2.50, 21},
+		{2.49, 18},
+		{1.00, 18},
+		{0.00, 18},
 	}
-	newName := "Baru"
-	req := model.PatchStudentRequest{Name: &newName}
-
-	patched, errs := ApplyStudentPatch(current, req)
-	if len(errs) != 0 {
-		t.Fatalf("seharusnya tidak ada error, dapat: %v", errs)
-	}
-	if patched.Name != "Baru" {
-		t.Fatalf("nama seharusnya 'Baru', dapat: %s", patched.Name)
-	}
-	// Field lain tidak berubah
-	if patched.NIM != "11111" {
-		t.Fatalf("nim seharusnya tetap '11111', dapat: %s", patched.NIM)
-	}
-}
-
-func TestApplyStudentPatch_Name_Kosong(t *testing.T) {
-	current := model.Student{NIM: "11111", Name: "Lama"}
-	empty := ""
-	req := model.PatchStudentRequest{Name: &empty}
-
-	_, errs := ApplyStudentPatch(current, req)
-	if _, ok := errs["name"]; !ok {
-		t.Fatal("seharusnya ada error untuk field name yang kosong")
-	}
-}
-
-func TestApplyStudentPatch_Grade_Invalid(t *testing.T) {
-	current := model.Student{NIM: "11111", Name: "Budi", Grade: 3.0}
-	badGrade := 5.0
-	req := model.PatchStudentRequest{Grade: &badGrade}
-
-	_, errs := ApplyStudentPatch(current, req)
-	if _, ok := errs["grade"]; !ok {
-		t.Fatal("seharusnya ada error untuk grade di luar batas")
+	for _, tc := range cases {
+		got := sksBatas(tc.ipk)
+		if got != tc.want {
+			t.Errorf("sksBatas(%.2f) = %d, want %d", tc.ipk, got, tc.want)
+		}
 	}
 }
 
@@ -143,19 +177,3 @@ func TestCountTotalPages(t *testing.T) {
 	}
 }
 
-// ── Test IsEmptyStudentPatch ──
-
-func TestIsEmptyStudentPatch_True(t *testing.T) {
-	req := model.PatchStudentRequest{}
-	if !IsEmptyStudentPatch(req) {
-		t.Fatal("seharusnya true untuk request kosong")
-	}
-}
-
-func TestIsEmptyStudentPatch_False(t *testing.T) {
-	name := "Tes"
-	req := model.PatchStudentRequest{Name: &name}
-	if IsEmptyStudentPatch(req) {
-		t.Fatal("seharusnya false untuk request dengan field terisi")
-	}
-}

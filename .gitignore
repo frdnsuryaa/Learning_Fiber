@@ -11,3 +11,4 @@ a/siakad-mini\.gitignore → b/siakad-mini\.gitignore
 +.idea/
 +*.iml
 +dist/
++.vscode/

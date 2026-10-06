@@ -45,8 +45,6 @@ func ApplyPatch(
 	if req.Username != nil {
 		if strings.TrimSpace(*req.Username) == "" {
 			errs["username"] = "tidak boleh kosong"
-		} else {
-			current.Username = *req.Username
 		}
 	}
 	if req.Email != nil {
@@ -56,9 +54,6 @@ func ApplyPatch(
 			current.Email = *req.Email
 		}
 	}
-	if req.IsActive != nil {
-		current.IsActive = *req.IsActive
-	}
 	return current, errs
 }
 
@@ -67,13 +62,6 @@ func IsEmptyPatch(req model.PatchUserRequest) bool {
 	return req.Username == nil && req.Email == nil && req.IsActive == nil
 }
 
-// CountTotalPages membulatkan ke atas tanpa memakai bilangan pecahan.
-func CountTotalPages(total, limit int) int {
-	if limit <= 0 {
-		return 0
-	}
-	return (total + limit - 1) / limit
-}
 
 // isValidEmail adalah pemeriksaan sederhana, bukan validasi RFC.
 // Pemeriksaan yang sungguh-sungguh dibahas pada pertemuan 7.

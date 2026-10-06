@@ -56,13 +56,6 @@ type UpdateStudentRequest struct {
 	IPKTerakhir float64 `json:"ipk_terakhir"`
 }
 
-// Meta adalah objek paginasi pada response list.
-type Meta struct {
-	CurrentPage int `json:"current_page"`
-	PerPage     int `json:"per_page"`
-	Total       int `json:"total"`
-	LastPage    int `json:"last_page"`
-}
 
 // ── Struct lama dipertahankan agar test tidak break ────────────────────────
 // PatchStudentRequest — dipakai oleh student_rules_test.go.

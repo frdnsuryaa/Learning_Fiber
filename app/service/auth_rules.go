@@ -9,6 +9,21 @@ import (
 
 const minPasswordLength = 8
 
+// ValidateLoginRequest memvalidasi POST /api/v1/auth/login.
+func ValidateLoginRequest(req model.LoginRequest) map[string]string {
+	errs := map[string]string{}
+	if !isValidEmail(req.Email) {
+		errs["email"] = "format email tidak valid"
+	}
+	if req.Password == "" {
+		errs["password"] = "wajib diisi"
+	} else if len(req.Password) < minPasswordLength {
+		errs["password"] = "minimal 8 karakter"
+	}
+	return errs
+}
+
+// ValidateRegister dipertahankan untuk kompatibilitas.
 func ValidateRegister(req model.RegisterRequest) map[string]string {
 	errs := map[string]string{}
 	username := strings.TrimSpace(req.Username)
@@ -31,15 +46,9 @@ func ValidateRegister(req model.RegisterRequest) map[string]string {
 	return errs
 }
 
+// ValidateLogin dipertahankan untuk kompatibilitas.
 func ValidateLogin(req model.LoginRequest) map[string]string {
-	errs := map[string]string{}
-	if strings.TrimSpace(req.Username) == "" {
-		errs["username"] = "wajib diisi"
-	}
-	if req.Password == "" {
-		errs["password"] = "wajib diisi"
-	}
-	return errs
+	return ValidateLoginRequest(req)
 }
 
 func checkPasswordStrength(password string) string {

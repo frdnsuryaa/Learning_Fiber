@@ -41,25 +41,30 @@ func (r *enrollmentPostgresRepository) Create(ctx context.Context, e model.Enrol
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Ambil data course dengan row lock untuk cek kuota
+	// Serialisasi enrollment mahasiswa agar dua request bersamaan tidak melewati batas SKS.
+	var studentID int
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM students
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
+	`, e.StudentID).Scan(&studentID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.Enrollment{}, ErrNotFound
+		}
+		return model.Enrollment{}, fmt.Errorf("gagal mengunci data mahasiswa: %w", err)
+	}
+
+	// Mengunci mata kuliah agar request bersamaan tidak melebihi kuota.
 	var kuota int
 	var sks int
 	err = tx.QueryRow(ctx, `
-		SELECT c.kuota, c.sks,
-		       (SELECT COUNT(*) FROM enrollments WHERE course_id = c.id) AS terisi
+		SELECT kuota, sks
 		FROM courses c
 		WHERE c.id = $1
 		FOR UPDATE
-	`, e.CourseID).Scan(&kuota, &sks, new(int))
-	// Kita butuh terisi secara terpisah
-	var terisi int
-	err = tx.QueryRow(ctx, `
-		SELECT c.kuota, c.sks,
-		       COALESCE((SELECT COUNT(*) FROM enrollments WHERE course_id = c.id), 0)
-		FROM courses c
-		WHERE c.id = $1
-		FOR UPDATE
-	`, e.CourseID).Scan(&kuota, &sks, &terisi)
+	`, e.CourseID).Scan(&kuota, &sks)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Enrollment{}, ErrNotFound
@@ -67,26 +72,36 @@ func (r *enrollmentPostgresRepository) Create(ctx context.Context, e model.Enrol
 		return model.Enrollment{}, fmt.Errorf("gagal mengambil data course: %w", err)
 	}
 
-	// 2. Cek kuota
+	var terisi int
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM enrollments
+		WHERE course_id = $1
+	`, e.CourseID).Scan(&terisi)
+	if err != nil {
+		return model.Enrollment{}, fmt.Errorf("gagal menghitung enrollment mata kuliah: %w", err)
+	}
+
 	if terisi >= kuota {
 		return model.Enrollment{}, ErrKuotaPenuh
 	}
 
-	// 3. Hitung total SKS mahasiswa pada tahun akademik ini
 	var totalSKS int
-	tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT COALESCE(SUM(c.sks), 0)
 		FROM enrollments e
 		JOIN courses c ON c.id = e.course_id
 		WHERE e.student_id = $1 AND e.tahun_akademik = $2
 	`, e.StudentID, e.TahunAkademik).Scan(&totalSKS)
+	if err != nil {
+		return model.Enrollment{}, fmt.Errorf("gagal menghitung total SKS mahasiswa: %w", err)
+	}
 
 	if totalSKS+sks > batasSKS {
 		return model.Enrollment{}, fmt.Errorf("%w: sisa %d SKS, mata kuliah butuh %d SKS",
 			ErrSKSMelebihi, batasSKS-totalSKS, sks)
 	}
 
-	// 4. Insert
 	var created model.Enrollment
 	err = tx.QueryRow(ctx, `
 		INSERT INTO enrollments (student_id, course_id, tahun_akademik)

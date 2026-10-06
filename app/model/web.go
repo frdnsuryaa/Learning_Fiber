@@ -11,9 +11,12 @@ type WebResponse struct {
 
 // Meta berisi informasi paginasi yang disertakan dalam respons list.
 type Meta struct {
-	Page       int `json:"page"`
-	Limit      int `json:"limit"`
-	Total      int `json:"total"`
-	TotalPages int `json:"total_pages"`
+	Page        int `json:"page,omitempty"`
+	Limit       int `json:"limit,omitempty"`
+	CurrentPage int `json:"current_page,omitempty"`
+	PerPage     int `json:"per_page,omitempty"`
+	Total       int `json:"total"`
+	TotalPages  int `json:"total_pages,omitempty"`
+	LastPage    int `json:"last_page,omitempty"`
 }
 
