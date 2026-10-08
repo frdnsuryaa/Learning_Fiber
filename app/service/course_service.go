@@ -28,18 +28,13 @@ func (s *CourseService) GetAllCourses(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
 	}
 
-	q := model.CourseQuery{
-		Search: strings.TrimSpace(c.Query("search")),
-	}
-
-	if raw := c.Query("semester"); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil {
-			q.Semester = &v
-		}
-	}
-
-	if c.Query("available") == "true" {
-		q.Available = true
+	q, errs := parseCourseQuery(
+		c.Query("semester"),
+		c.Query("search"),
+		c.Query("available"),
+	)
+	if len(errs) > 0 {
+		return helper.FailValidation(c, errs)
 	}
 
 	courses, err := s.repo.FindAll(c.Context(), q)
@@ -48,4 +43,28 @@ func (s *CourseService) GetAllCourses(c *fiber.Ctx) error {
 	}
 
 	return helper.Success(c, fiber.StatusOK, "data mata kuliah berhasil diambil", courses)
+}
+
+func parseCourseQuery(semester, search, available string) (model.CourseQuery, map[string]string) {
+	q := model.CourseQuery{Search: strings.TrimSpace(search)}
+	errs := make(map[string]string)
+
+	if raw := strings.TrimSpace(semester); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 {
+			errs["semester"] = "harus berupa angka positif"
+		} else {
+			q.Semester = &value
+		}
+	}
+
+	switch strings.ToLower(strings.TrimSpace(available)) {
+	case "", "false":
+	case "true":
+		q.Available = true
+	default:
+		errs["available"] = "harus bernilai true atau false"
+	}
+
+	return q, errs
 }

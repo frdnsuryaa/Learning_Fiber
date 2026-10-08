@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -56,18 +55,20 @@ func (s *EnrollmentService) CreateEnrollment(c *fiber.Ctx) error {
 	// Ambil data student
 	student, err := s.studentRepo.FindByUserID(c.Context(), authUser.UserID)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusNotFound, "data mahasiswa tidak ditemukan")
+		if errors.Is(err, repository.ErrNotFound) {
+			return helper.Fail(c, fiber.StatusNotFound, "data mahasiswa tidak ditemukan")
+		}
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mahasiswa")
 	}
 
 	// Pastikan course ada
-	course, err := s.courseRepo.FindByID(c.Context(), req.CourseID)
+	_, err = s.courseRepo.FindByID(c.Context(), req.CourseID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return helper.FailValidation(c, map[string]string{"course_id": "mata kuliah tidak ditemukan"})
 		}
 		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mata kuliah")
 	}
-	_ = course
 
 	// Hitung batas SKS
 	batasSKS := sksBatas(student.IPKTerakhir)
@@ -87,13 +88,7 @@ func (s *EnrollmentService) CreateEnrollment(c *fiber.Ctx) error {
 			})
 		}
 		if errors.Is(err, repository.ErrSKSMelebihi) {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(fiber.Map{
-				"success": false,
-				"message": "validasi gagal",
-				"errors": map[string]string{
-					"sks": fmt.Sprintf("total SKS melebihi batas: %s", err.Error()),
-				},
-			})
+			return helper.FailValidation(c, map[string]string{"sks": err.Error()})
 		}
 		if errors.Is(err, repository.ErrNotFound) {
 			return helper.FailValidation(c, map[string]string{"course_id": "mata kuliah tidak ditemukan"})
@@ -122,7 +117,10 @@ func (s *EnrollmentService) DeleteEnrollment(c *fiber.Ctx) error {
 	// Ambil student untuk cek kepemilikan
 	student, err := s.studentRepo.FindByUserID(c.Context(), authUser.UserID)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusNotFound, "data mahasiswa tidak ditemukan")
+		if errors.Is(err, repository.ErrNotFound) {
+			return helper.Fail(c, fiber.StatusNotFound, "data mahasiswa tidak ditemukan")
+		}
+		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mahasiswa")
 	}
 
 	if err := s.enrollRepo.Delete(c.Context(), id, student.ID); err != nil {

@@ -72,6 +72,23 @@ func (r *enrollmentPostgresRepository) Create(ctx context.Context, e model.Enrol
 		return model.Enrollment{}, fmt.Errorf("gagal mengambil data course: %w", err)
 	}
 
+	var alreadyEnrolled bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM enrollments
+			WHERE student_id = $1
+			  AND course_id = $2
+			  AND tahun_akademik = $3
+		)
+	`, e.StudentID, e.CourseID, e.TahunAkademik).Scan(&alreadyEnrolled)
+	if err != nil {
+		return model.Enrollment{}, fmt.Errorf("gagal memeriksa KRS duplikat: %w", err)
+	}
+	if alreadyEnrolled {
+		return model.Enrollment{}, ErrDuplicate
+	}
+
 	var terisi int
 	err = tx.QueryRow(ctx, `
 		SELECT COUNT(*)
@@ -143,18 +160,66 @@ func (r *enrollmentPostgresRepository) FindByID(ctx context.Context, id int) (mo
 // Delete menghapus enrollment milik student tertentu.
 // Mengembalikan ErrNotFound jika tidak ada, atau error lain jika enrollment bukan milik student.
 func (r *enrollmentPostgresRepository) Delete(ctx context.Context, id int, studentID int) error {
-	// Cek kepemilikan dulu
-	e, err := r.FindByID(ctx, id)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("gagal memulai transaksi pembatalan KRS: %w", err)
 	}
-	if e.StudentID != studentID {
+	defer tx.Rollback(ctx)
+
+	var lockedStudentID int
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM students
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
+	`, studentID).Scan(&lockedStudentID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("gagal mengunci data mahasiswa: %w", err)
+	}
+
+	var enrollmentStudentID, courseID int
+	err = tx.QueryRow(ctx, `
+		SELECT student_id, course_id
+		FROM enrollments
+		WHERE id = $1
+		FOR UPDATE
+	`, id).Scan(&enrollmentStudentID, &courseID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("gagal mencari enrollment: %w", err)
+	}
+	if enrollmentStudentID != studentID {
 		return ErrForbidden
 	}
 
-	_, err = r.pool.Exec(ctx, `DELETE FROM enrollments WHERE id = $1`, id)
+	var lockedCourseID int
+	err = tx.QueryRow(ctx, `
+		SELECT id
+		FROM courses
+		WHERE id = $1
+		FOR UPDATE
+	`, courseID).Scan(&lockedCourseID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("gagal mengunci mata kuliah: %w", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		DELETE FROM enrollments
+		WHERE id = $1 AND student_id = $2
+	`, id, studentID)
 	if err != nil {
 		return fmt.Errorf("gagal delete enrollment: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("gagal commit pembatalan KRS: %w", err)
 	}
 	return nil
 }
