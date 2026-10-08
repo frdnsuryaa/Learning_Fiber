@@ -37,10 +37,14 @@ func ParseStudentQuery(c *fiber.Ctx) model.StudentQuery {
 		}
 	}
 
-	if raw := c.Query("sort"); raw == "nama" || raw == "-ipk_terakhir" {
-		q.Sort = raw
+	if raw := strings.TrimSpace(c.Query("sort")); raw != "" {
+		switch strings.ToLower(raw) {
+		case "nama":
+			q.Sort = "nama"
+		case "-ipk_terakhir":
+			q.Sort = "-ipk_terakhir"
+		}
 	}
 
 	return q
 }
-
