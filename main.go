@@ -60,6 +60,7 @@ func main() {
 	studentRepository := repository.NewStudentRepository(pool)
 	courseRepository := repository.NewCourseRepository(pool)
 	enrollmentRepository := repository.NewEnrollmentRepository(pool)
+	nilaiRepository := repository.NewNilaiRepository(pool)
 	healthRepository := repository.NewHealthRepository(pool)
 
 	// Services
@@ -74,6 +75,7 @@ func main() {
 	studentService := service.NewStudentService(studentRepository)
 	courseService := service.NewCourseService(courseRepository)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepository, studentRepository, courseRepository)
+	nilaiService := service.NewNilaiService(nilaiRepository, studentRepository)
 
 	app := config.NewFiberApp()
 	route.SetupRoute(app, route.Dependencies{
@@ -82,6 +84,7 @@ func main() {
 		StudentService:    studentService,
 		CourseService:     courseService,
 		EnrollmentService: enrollmentService,
+		NilaiService:      nilaiService,
 		SystemService:     systemService,
 	})
 

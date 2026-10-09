@@ -14,6 +14,7 @@ type Dependencies struct {
 	StudentService    *service.StudentService
 	CourseService     *service.CourseService
 	EnrollmentService *service.EnrollmentService
+	NilaiService      *service.NilaiService
 	SystemService     *service.SystemService
 }
 
@@ -48,4 +49,10 @@ func SetupRoute(app *fiber.App, deps Dependencies) {
 	enrollments := api.Group("/enrollments", middleware.RequireAuth(deps.JWT))
 	enrollments.Post("/", middleware.RequireJSON, deps.EnrollmentService.CreateEnrollment)
 	enrollments.Delete("/:id", deps.EnrollmentService.DeleteEnrollment)
+
+	// ── Nilai (semua perlu token) ─────────────────────────────────────────────
+	nilai := api.Group("/nilai", middleware.RequireAuth(deps.JWT))
+	nilai.Get("/", deps.NilaiService.GetNilai)
+	nilai.Post("/", middleware.RequireJSON, deps.NilaiService.CreateNilai)
+	nilai.Delete("/:id", deps.NilaiService.DeleteNilai)
 }
