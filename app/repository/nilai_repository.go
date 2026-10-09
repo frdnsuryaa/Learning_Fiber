@@ -31,7 +31,7 @@ func (r *nilaiPostgresRepository) FindByStudentID(ctx context.Context, studentID
 	rows, err := r.pool.Query(ctx, `
 		SELECT idnilai, namamatkul, nilai, idstudent, created_at
 		FROM nilai
-		WHERE idstudent = (SELECT id::text FROM students WHERE id = $1 AND deleted_at IS NULL)
+		WHERE idstudent = $1
 		ORDER BY created_at DESC
 	`, studentID)
 	if err != nil {
@@ -69,7 +69,7 @@ func (r *nilaiPostgresRepository) Delete(ctx context.Context, idNilai int, stude
 	tag, err := r.pool.Exec(ctx, `
 		DELETE FROM nilai
 		WHERE idnilai = $1
-		  AND idstudent = (SELECT id::text FROM students WHERE id = $2 AND deleted_at IS NULL)
+		  AND idstudent = $2
 	`, idNilai, studentID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

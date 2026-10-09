@@ -78,7 +78,7 @@ func (s *NilaiService) CreateNilai(c *fiber.Ctx) error {
 	var req struct {
 		NamaMatkul string `json:"namamatkul"`
 		Nilai      string `json:"nilai"`
-		IDStudent  string `json:"idstudent"`
+		IDStudent  int    `json:"idstudent"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return helper.Fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
@@ -86,7 +86,6 @@ func (s *NilaiService) CreateNilai(c *fiber.Ctx) error {
 
 	req.NamaMatkul = strings.TrimSpace(req.NamaMatkul)
 	req.Nilai = strings.TrimSpace(req.Nilai)
-	req.IDStudent = strings.TrimSpace(req.IDStudent)
 
 	errs := map[string]string{}
 	if req.NamaMatkul == "" {
@@ -95,19 +94,14 @@ func (s *NilaiService) CreateNilai(c *fiber.Ctx) error {
 	if req.Nilai == "" {
 		errs["nilai"] = "nilai wajib diisi"
 	}
-	if req.IDStudent == "" {
+	if req.IDStudent < 1 {
 		errs["idstudent"] = "idstudent wajib diisi"
 	}
 	if len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
 
-	// Verifikasi student ada (idstudent adalah string id dari tabel students)
-	studentID, err := strconv.Atoi(req.IDStudent)
-	if err != nil || studentID < 1 {
-		return helper.FailValidation(c, map[string]string{"idstudent": "idstudent tidak valid"})
-	}
-	_, err = s.studentRepo.FindByID(c.Context(), studentID)
+	_, err := s.studentRepo.FindByID(c.Context(), req.IDStudent)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return helper.FailValidation(c, map[string]string{"idstudent": "mahasiswa tidak ditemukan"})

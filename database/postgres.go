@@ -101,7 +101,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		idnilai    SERIAL PRIMARY KEY,
 		namamatkul VARCHAR(100) NOT NULL,
 		nilai      VARCHAR(10)  NOT NULL,
-		idstudent  VARCHAR(36)  NOT NULL,
+		idstudent  INTEGER      NOT NULL,
 		created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 		CONSTRAINT fk_nilai_student FOREIGN KEY (idstudent) REFERENCES students(id) ON DELETE CASCADE
 	);
