@@ -117,10 +117,20 @@ func (s *StudentService) CreateStudent(c *fiber.Ctx) error {
 		IPKTerakhir: req.IPKTerakhir,
 	})
 	if err != nil {
+		if errors.Is(err, repository.ErrDuplicateEmail) {
+			return helper.FailValidation(c, map[string]string{
+				"email": "email sudah digunakan",
+			})
+		}
+		if errors.Is(err, repository.ErrDuplicateNIM) {
+			return helper.FailValidation(c, map[string]string{
+				"nim": "NIM sudah terdaftar",
+			})
+		}
 		if errors.Is(err, repository.ErrDuplicate) {
 			return helper.FailValidation(c, map[string]string{
-				"nim":   "NIM atau email sudah terdaftar",
-				"email": "NIM atau email sudah terdaftar",
+				"nim":   "NIM sudah terdaftar",
+				"email": "email sudah digunakan",
 			})
 		}
 		return helper.Fail(c, fiber.StatusInternalServerError, "gagal membuat data mahasiswa")

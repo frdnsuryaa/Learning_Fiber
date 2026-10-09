@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"api-students/app/model"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,7 +63,7 @@ func (r *studentPostgresRepository) CreateWithUser(
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return model.User{}, model.Student{}, ErrDuplicate
+			return model.User{}, model.Student{}, ErrDuplicateEmail
 		}
 		return model.User{}, model.Student{}, fmt.Errorf("gagal insert user: %w", err)
 	}
@@ -77,7 +78,7 @@ func (r *studentPostgresRepository) CreateWithUser(
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return model.User{}, model.Student{}, ErrDuplicate
+			return model.User{}, model.Student{}, ErrDuplicateNIM
 		}
 		return model.User{}, model.Student{}, fmt.Errorf("gagal insert student: %w", err)
 	}

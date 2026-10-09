@@ -13,9 +13,11 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("data tidak ditemukan")
-	ErrDuplicate = errors.New("data sudah ada")
-	ErrForbidden = errors.New("akses ditolak")
+	ErrNotFound       = errors.New("data tidak ditemukan")
+	ErrDuplicate      = errors.New("data sudah ada")
+	ErrDuplicateNIM   = errors.New("NIM sudah terdaftar")
+	ErrDuplicateEmail = errors.New("email sudah digunakan")
+	ErrForbidden      = errors.New("akses ditolak")
 )
 
 // UserRepository mendefinisikan operasi database untuk tabel users.
