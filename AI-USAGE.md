@@ -1,5 +1,9 @@
-# Penggunaan AI dalam Program meliputi: 
+# Penggunaan AI
 
- 1. Membantu memahami konsep yang belum terlalu mengerti seperti map, pointer, channel, dll
- 2. Menganalisis error dalam kode dan memberikan perbaikan
- 3. Membantu dalam membuat README dan dokumentasi project
+AI digunakan sebagai alat bantu selama pengerjaan proyek, terutama untuk:
+
+- Membantu memahami konsep Go dan alur kerja REST API.
+- Menganalisis pesan error dan menelusuri kemungkinan penyebabnya.
+- Memberi saran serta membantu implementasi bertahap pada validasi endpoint mahasiswa dan proses mata kuliah/KRS.
+- Membantu menyusun dan memperbaiki unit test serta dokumentasi.
+
